@@ -1,0 +1,8 @@
+# Firebase
+firebase-config.js
+.firebase/
+database-debug.log
+firestore-debug.log
+
+# Node
+node_modules/
