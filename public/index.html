@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual Assistant</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        .file-item-selected { background-color: #3b82f6 !important; color: white !important; }
+        .typing-indicator span { height: 8px; width: 8px; background-color: #9ca3af; border-radius: 50%; display: inline-block; animation: bounce 1.4s infinite ease-in-out both; }
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1.0); } }
+        .modal { transition: opacity 0.3s ease; }
+        .feedback-btn.selected svg { fill: currentColor; }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 font-sans antialiased">
+
+    <!-- Authentication Container -->
+    <div id="auth-container" class="flex items-center justify-center min-h-screen">
+        <div class="w-full max-w-md bg-gray-800 p-8 rounded-lg shadow-lg">
+            <h1 class="text-3xl font-bold text-center text-white mb-2">Manual Assistant</h1>
+            <p id="auth-mode-label" class="text-center text-gray-400 mb-6">Please log in to continue</p>
+            
+            <div id="auth-error" class="bg-red-500/20 text-red-300 text-sm p-3 rounded-lg mb-4 hidden"></div>
+
+            <form id="auth-form">
+                <div class="mb-4">
+                    <label for="email-input" class="block text-sm font-medium text-gray-300 mb-1">Email</label>
+                    <input type="email" id="email-input" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" required>
+                </div>
+                <div class="mb-6">
+                    <label for="password-input" class="block text-sm font-medium text-gray-300 mb-1">Password</label>
+                    <input type="password" id="password-input" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" required>
+                </div>
+                <button type="submit" id="main-auth-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Login</button>
+            </form>
+            <p class="text-center text-sm text-gray-400 mt-6">
+                <span id="auth-prompt-text">Don't have an account?</span>
+                <a href="#" id="toggle-auth-mode" class="font-semibold text-blue-400 hover:underline">Register</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Main Application Container -->
+    <div id="app-container" class="hidden h-screen">
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">
+             <div class="bg-gray-800 rounded-lg shadow-xl p-8 w-full max-w-md mx-4">
+                <h2 class="text-2xl font-bold text-white mb-6">Settings</h2>
+                <form id="settings-form">
+                    <div class="mb-4">
+                        <label for="api-key-input" class="block text-sm font-medium text-gray-300 mb-1">Gemini API Key</label>
+                        <input type="password" id="api-key-input" placeholder="Paste your API key here" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                         <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-xs text-blue-400 hover:underline mt-1 inline-block">Get a Free API Key &rarr;</a>
+                    </div>
+                    <div class="mb-6">
+                        <label for="operator-email-input" class="block text-sm font-medium text-gray-300 mb-1">Operator Email for Escalation</label>
+                        <input type="email" id="operator-email-input" placeholder="expert@example.com" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <button type="button" id="close-settings-modal" class="text-gray-400 hover:text-white">Cancel</button>
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition-colors">Save Settings</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Analytics Modal -->
+        <div id="analytics-modal" class="modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">
+             <div class="bg-gray-800 rounded-lg shadow-xl p-8 w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-white">Feedback Analytics</h2>
+                    <button id="close-analytics-modal" class="text-gray-400 hover:text-white text-3xl leading-none">&times;</button>
+                </div>
+                <div id="analytics-content" class="overflow-y-auto"></div>
+            </div>
+        </div>
+
+        <div class="flex h-full">
+            <!-- Left Panel -->
+            <div class="w-1/3 bg-gray-800 p-6 flex flex-col border-r border-gray-700">
+                <header class="mb-6 flex justify-between items-center">
+                    <div>
+                        <h1 class="text-2xl font-bold text-white">Manual Assistant</h1>
+                        <p id="welcome-message" class="text-sm text-gray-400">Welcome!</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button id="analytics-button" class="admin-only" title="View Analytics">
+                           <svg class="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                        </button>
+                        <button id="settings-button" class="admin-only" title="Settings">
+                           <svg class="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        </button>
+                        <button id="logout-button" title="Logout">
+                           <svg class="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                        </button>
+                    </div>
+                </header>
+                
+                <div id="upload-zone" class="admin-only border-2 border-dashed border-gray-600 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-gray-700 transition-colors">
+                    <input type="file" id="pdf-upload" class="hidden" accept=".pdf" multiple>
+                    <label for="pdf-upload" class="cursor-pointer">
+                       <svg class="mx-auto h-12 w-12 text-gray-500" stroke="currentColor" fill="none" viewBox="0 0 48 48"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                        <p class="mt-2 text-sm text-gray-400"><span class="font-semibold text-blue-400">Click to upload</span> or drag and drop</p>
+                        <p class="text-xs text-gray-500">PDF files only (Admin)</p>
+                    </label>
+                </div>
+
+                <div id="processing-indicator" class="hidden mt-4 text-center p-4 bg-gray-700 rounded-lg">
+                    <p id="processing-filename" class="text-sm text-blue-400 font-semibold truncate">Processing file...</p>
+                    <p id="processing-pages" class="text-xs text-gray-400 mt-1"></p>
+                    <div class="w-full bg-gray-600 rounded-full h-2.5 mt-2">
+                        <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="mt-6 flex-grow overflow-y-auto">
+                    <h2 class="text-lg font-semibold text-gray-300 mb-2">Available Manuals</h2>
+                    <ul id="file-list" class="space-y-2">
+                        <li id="no-files-message" class="text-gray-500 text-sm">No manuals available. An admin needs to upload them.</li>
+                    </ul>
+                </div>
+            </div>
+            <!-- Right Panel -->
+            <div class="w-2/3 flex flex-col bg-gray-900">
+                <header id="chat-header" class="p-4 border-b border-gray-800 text-center"><h2 class="text-xl font-semibold">Select a manual to start chatting</h2></header>
+                <main id="chat-window" class="flex-grow p-6 overflow-y-auto"><div id="chat-messages" class="space-y-4"></div></main>
+                <footer id="chat-footer" class="p-4 border-t border-gray-800">
+                    <form id="chat-form" class="flex items-center space-x-4">
+                        <input type="text" id="chat-input" placeholder="Ask a question..." class="flex-grow bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white disabled:opacity-50" disabled>
+                        <button type="submit" id="send-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                        </button>
+                    </form>
+                </footer>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="/__/firebase/10.12.2/firebase-app.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-auth.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-firestore.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-storage.js"></script>
+    <script src="/__/firebase/10.12.2/firebase-functions.js"></script>
+    <!-- Initialize Firebase -->
+    <script src="/__/firebase/init.js"></script>
+
+    <script type="module">
+        // These imports are now handled by the scripts above, but we need the functions
+        const { initializeApp } = firebase;
+        const { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } = firebase.auth;
+        const { getFirestore, collection, doc, addDoc, onSnapshot, setDoc, getDoc, query, enableIndexedDbPersistence } = firebase.firestore;
+        const { getStorage, ref, uploadBytesResumable, getDownloadURL } = firebase.storage;
+        const { getFunctions, httpsCallable } = firebase.functions;
+
+        // Initialize Firebase
+        const app = initializeApp(firebase.app().options);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const storage = getStorage(app);
+        const functions = getFunctions(app);
+
+
+
+        // Enable offline persistence
+        (async () => {
+            try {
+                await enableIndexedDbPersistence(db);
+            } catch (err) {
+                if (err.code == 'failed-precondition') {
+                    console.warn("Multiple tabs open, persistence can only be enabled in one tab at a time.");
+                } else if (err.code == 'unimplemented') {
+                    console.warn("The current browser does not support all of the features required to enable persistence.");
+                }
+            }
+        })();
+        
+        document.addEventListener('DOMContentLoaded', () => {
+            const authContainer = document.getElementById('auth-container');
+            const appContainer = document.getElementById('app-container');
+            const authForm = document.getElementById('auth-form');
+            const emailInput = document.getElementById('email-input');
+            const passwordInput = document.getElementById('password-input');
+            const mainAuthBtn = document.getElementById('main-auth-btn');
+            const toggleAuthMode = document.getElementById('toggle-auth-mode');
+            const authModeLabel = document.getElementById('auth-mode-label');
+            const authPromptText = document.getElementById('auth-prompt-text');
+            const authError = document.getElementById('auth-error');
+            const logoutButton = document.getElementById('logout-button');
+            const welcomeMessage = document.getElementById('welcome-message');
+            
+            const uploadZone = document.getElementById('upload-zone');
+            const pdfUpload = document.getElementById('pdf-upload');
+            const fileList = document.getElementById('file-list');
+            const noFilesMessage = document.getElementById('no-files-message');
+            const processingIndicator = document.getElementById('processing-indicator');
+            const progressBar = document.getElementById('progress-bar');
+            const processingFilename = document.getElementById('processing-filename');
+            const processingPages = document.getElementById('processing-pages');
+            
+            const chatHeader = document.getElementById('chat-header');
+            const chatWindow = document.getElementById('chat-window');
+            const chatMessages = document.getElementById('chat-messages');
+            const chatForm = document.getElementById('chat-form');
+            const chatInput = document.getElementById('chat-input');
+            const sendButton = document.getElementById('send-button');
+            
+            const settingsModal = document.getElementById('settings-modal');
+            const settingsForm = document.getElementById('settings-form');
+            const apiKeyInput = document.getElementById('api-key-input');
+            const operatorEmailInput = document.getElementById('operator-email-input');
+            const settingsButton = document.getElementById('settings-button');
+            const closeSettingsModal = document.getElementById('close-settings-modal');
+            
+            const analyticsModal = document.getElementById('analytics-modal');
+            const analyticsButton = document.getElementById('analytics-button');
+            const closeAnalyticsModal = document.getElementById('close-analytics-modal');
+            const analyticsContent = document.getElementById('analytics-content');
+            
+            pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
+
+            let state = {
+                user: null,
+                isAdmin: false,
+                manuals: {},
+                currentManual: null,
+                currentQuery: "",
+                isProcessing: false,
+                isAwaitingResponse: false,
+                settings: { apiKey: "", operatorEmail: "" },
+                unsubscribeManuals: null,
+                unsubscribeAnalytics: null,
+            };
+
+            let isLoginMode = true;
+            let unsubscribeUserRole = null;
+
+            toggleAuthMode.addEventListener('click', (e) => {
+                e.preventDefault();
+                isLoginMode = !isLoginMode;
+                authError.classList.add('hidden');
+                mainAuthBtn.textContent = isLoginMode ? 'Login' : 'Register';
+                authModeLabel.textContent = isLoginMode ? 'Please log in to continue' : 'Create a new account';
+                authPromptText.textContent = isLoginMode ? "Don't have an account?" : 'Already have an account?';
+                toggleAuthMode.textContent = isLoginMode ? 'Register' : 'Login';
+            });
+
+            authForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                mainAuthBtn.disabled = true;
+                mainAuthBtn.textContent = 'Connecting...';
+                const email = emailInput.value;
+                const password = passwordInput.value;
+                authError.classList.add('hidden');
+
+                try {
+                    if (isLoginMode) {
+                        await signInWithEmailAndPassword(auth, email, password);
+                    } else {
+                        await createUserWithEmailAndPassword(auth, email, password);
+                    }
+                } catch (error) {
+                    authError.textContent = error.message;
+                    authError.classList.remove('hidden');
+                    mainAuthBtn.disabled = false;
+                    mainAuthBtn.textContent = isLoginMode ? 'Login' : 'Register';
+                }
+            });
+
+            logoutButton.addEventListener('click', () => {
+                signOut(auth);
+            });
+            
+            async function getDocWithRetry(docRef, retries = 3, delay = 1000) {
+                for (let i = 0; i < retries; i++) {
+                    try {
+                        const docSnap = await getDoc(docRef);
+                        return docSnap;
+                    } catch (error) {
+                        if ((error.code === 'unavailable' || error.message.includes('offline')) && i < retries - 1) {
+                            console.warn(`(Attempt ${i + 1}) Connection issue fetching doc, retrying in ${delay / 1000}s...`);
+                            await new Promise(res => setTimeout(res, delay));
+                            delay *= 2;
+                        } else {
+                            throw error;
+                        }
+                    }
+                }
+            }
+            
+            onAuthStateChanged(auth, async (user) => {
+                if (unsubscribeUserRole) unsubscribeUserRole();
+                if (state.unsubscribeManuals) state.unsubscribeManuals();
+                if (state.unsubscribeAnalytics) state.unsubscribeAnalytics();
+
+                if (user) {
+                    state.user = user;
+                    
+                    authContainer.classList.remove('hidden');
+                    appContainer.classList.add('hidden');
+                    mainAuthBtn.disabled = true;
+                    mainAuthBtn.textContent = 'Verifying...';
+                    authError.classList.add('hidden');
+
+                    const userDocRef = doc(db, "users", user.uid);
+
+                    unsubscribeUserRole = onSnapshot(userDocRef, async (docSnap) => {
+                        let isAdmin = false;
+                        const docData = docSnap.data();
+                        if (docData && docData.isAdmin) {
+                           isAdmin = true;
+                        } else if (user.email === 'admin@manual.app' && (!docData || !docData.isAdmin)) {
+                            // If user is the designated admin email and isn't admin yet, promote them.
+                                try {
+                                    await setDoc(userDocRef, { email: user.email, isAdmin: true }, { merge: true });
+                                    isAdmin = true; 
+                                } catch (e) {
+                                    console.error("Failed to set admin role:", e);
+                                }
+                            }
+                        
+                        if (state.isAdmin !== isAdmin || appContainer.classList.contains('hidden')) {
+                             state.isAdmin = isAdmin;
+                            authContainer.classList.add('hidden');
+                            appContainer.classList.remove('hidden');
+                            welcomeMessage.textContent = `Welcome, ${user.email.split('@')[0]}!`;
+
+                            updateRoleUI();
+                            listenForManuals();
+                            if (state.isAdmin) {
+                                setupAdminFileUpload();
+                                await fetchSettings();
+                                listenForAnalytics();
+                            }
+                        }
+                    }, async (error) => {
+                         console.error("Firebase role listener failed:", error);
+                         authError.textContent = "Could not verify user role. Please refresh the page.";
+                         authError.classList.remove('hidden');
+                         await signOut(auth); 
+                    });
+
+                } else {
+                    state = { ...state, user: null, isAdmin: false, manuals: {}, currentManual: null };
+                    authContainer.classList.remove('hidden');
+                    appContainer.classList.add('hidden');
+                    mainAuthBtn.disabled = false;
+                    mainAuthBtn.textContent = isLoginMode ? 'Login' : 'Register';
+                }
+            });
+            
+            function updateRoleUI() {
+                const adminOnlyElements = document.querySelectorAll('.admin-only');
+                adminOnlyElements.forEach(el => {
+                    el.style.display = state.isAdmin ? '' : 'none';
+                });
+            }
+            
+            async function fetchSettings() {
+                if (!state.isAdmin) return;
+                const settingsDocRef = doc(db, 'settings', 'config');
+                try {
+                    const docSnap = await getDocWithRetry(settingsDocRef);
+                    if (docSnap.exists()) {
+                        state.settings = docSnap.data();
+                    }
+                } catch (error) {
+                    console.error("Error fetching settings:", error);
+                    addMessage('system', 'Could not load settings from the database.');
+                }
+                apiKeyInput.value = state.settings.apiKey || '';
+                operatorEmailInput.value = state.settings.operatorEmail || '';
+            }
+
+            settingsButton.addEventListener('click', () => settingsModal.classList.remove('hidden'));
+            closeSettingsModal.addEventListener('click', () => settingsModal.classList.add('hidden'));
+
+            settingsForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                if (!state.isAdmin) return;
+
+                try {
+                    const apiKey = apiKeyInput.value.trim();
+                    const operatorEmail = operatorEmailInput.value.trim();
+                    
+                    const settingsDocRef = doc(db, 'settings', 'config');
+                    await setDoc(settingsDocRef, { apiKey, operatorEmail }, { merge: true });
+                    
+                    state.settings.apiKey = apiKey;
+                    state.settings.operatorEmail = operatorEmail;
+
+                    addMessage('system', 'Settings saved successfully.');
+                } catch (error) {
+                    console.error("Error saving settings:", error);
+                    addMessage('system', 'Error: Could not save settings.');
+                } finally {
+                    settingsModal.classList.add('hidden');
+                }
+            });
+
+            function setupAdminFileUpload() {
+                if (!uploadZone) return;
+                ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                    uploadZone.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
+                });
+                ['dragenter', 'dragover'].forEach(eventName => {
+                    uploadZone.addEventListener(eventName, () => uploadZone.classList.add('bg-gray-700', 'border-blue-500'), false);
+                });
+                ['dragleave', 'drop'].forEach(eventName => {
+                    uploadZone.addEventListener(eventName, () => uploadZone.classList.remove('bg-gray-700', 'border-blue-500'), false);
+                });
+                uploadZone.addEventListener('drop', (e) => handleFiles(e.dataTransfer.files), false);
+                pdfUpload.addEventListener('change', (e) => handleFiles(e.target.files));
+            }
+
+            async function handleFiles(files) {
+                if (!state.isAdmin || state.isProcessing) return;
+                console.log('handleFiles called with', files);
+                const pdfFiles = Array.from(files).filter(file => file.type === 'application/pdf');
+                if (pdfFiles.length === 0) return;
+
+                state.isProcessing = true;
+                processingIndicator.classList.remove('hidden');
+
+                for (const file of pdfFiles) {
+                    try {
+                        processingFilename.textContent = `Processing: ${file.name}`;
+                        progressBar.style.width = '0%';
+                        
+                        console.log('Starting upload for', file.name);
+                        const storageRef = ref(storage, `manuals/${file.name}`);
+                        const uploadTask = uploadBytesResumable(storageRef, file);
+
+                        await new Promise((resolve, reject) => {
+                            uploadTask.on('state_changed',
+                                (snapshot) => {
+                                    const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                                    console.log('Upload progress:', progress);
+                                    progressBar.style.width = progress + '%';
+                                    processingPages.textContent = `Uploading: ${Math.round(progress)}%`;
+                                },
+                                (error) => {
+                                    console.error("Upload error:", error);
+                                    let errorMessage = `Upload failed for ${file.name}. `;
+                                    switch (error.code) {
+                                        case 'storage/unauthorized':
+                                            errorMessage += 'Permission denied. Please check your Firebase Storage security rules in the console.';
+                                            break;
+                                        case 'storage/retry-limit-exceeded':
+                                            errorMessage += 'Connection timed out. Please check your internet connection and try again.';
+                                            break;
+                                        default:
+                                            errorMessage += 'An unknown error occurred.';
+                                            break;
+                                    }
+                                    addMessage('system', errorMessage);
+                                    reject(error);
+                                },
+                                () => {
+                                    console.log('Upload complete for', file.name);
+                                    resolve(); // Upload completed successfully
+                                }
+                            );
+                        });
+                        
+                        const fileReader = new FileReader();
+                        const arrayBuffer = await new Promise((resolve, reject) => {
+                            fileReader.onload = () => resolve(fileReader.result);
+                            fileReader.onerror = reject;
+                            fileReader.readAsArrayBuffer(file);
+                        });
+
+                        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                        let fullText = '';
+                        for (let i = 1; i <= pdf.numPages; i++) {
+                            processingPages.textContent = `Extracting text from page ${i} of ${pdf.numPages}`;
+                            const page = await pdf.getPage(i);
+                            const textContent = await page.getTextContent();
+                            fullText += textContent.items.map(item => item.str).join(' ') + '\n';
+                            progressBar.style.width = `${(i / pdf.numPages) * 100}%`;
+                        }
+
+                        processingPages.textContent = 'Saving to database...';
+                        await setDoc(doc(db, "manuals", file.name), {
+                            name: file.name,
+                            textContent: fullText
+                        });
+
+                    } catch (error) {
+                        if (error.code && !error.code.startsWith('storage/')) {
+                             addMessage('system', `Failed to process ${file.name} after upload.`);
+                        }
+                    }
+                }
+                state.isProcessing = false;
+                processingIndicator.classList.add('hidden');
+                processingFilename.textContent = 'Processing file...';
+                processingPages.textContent = '';
+            }
+
+            function listenForManuals() {
+                if (state.unsubscribeManuals) state.unsubscribeManuals();
+                const q = query(collection(db, "manuals"));
+                state.unsubscribeManuals = onSnapshot(q, (snapshot) => {
+                    fileList.innerHTML = '';
+                    if (snapshot.empty) {
+                        fileList.appendChild(noFilesMessage);
+                    } else {
+                        snapshot.forEach(doc => {
+                            const manual = doc.data();
+                            state.manuals[manual.name] = manual.textContent;
+                            const li = document.createElement('li');
+                            li.className = `p-3 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors text-sm truncate ${state.currentManual === manual.name ? 'file-item-selected' : 'bg-gray-700'}`;
+                            li.textContent = manual.name;
+                            li.addEventListener('click', () => selectManual(manual.name));
+                            fileList.appendChild(li);
+                        });
+                    }
+                }, (error) => {
+                    console.error("Error listening for manuals:", error);
+                    addMessage('system', "Could not load manuals.");
+                });
+            }
+            
+            function selectManual(filename) {
+                if (state.currentManual === filename) return;
+                state.currentManual = filename;
+                chatMessages.innerHTML = '';
+                addMessage('assistant', { short: `Ready to answer questions about <strong>${filename}</strong>.` });
+                updateChatUI();
+                
+                const listItems = fileList.querySelectorAll('li');
+                listItems.forEach(li => {
+                    if (li.textContent === filename) {
+                        li.classList.add('file-item-selected');
+                    } else {
+                        li.classList.remove('file-item-selected');
+                    }
+                });
+            }
+            
+            function updateChatUI() {
+                 const canChat = state.currentManual && !state.isAwaitingResponse;
+                chatInput.disabled = !canChat;
+                sendButton.disabled = !canChat;
+
+                if (state.currentManual) {
+                    chatHeader.innerHTML = `<h2 class="text-xl font-semibold truncate">${state.currentManual}</h2>`;
+                    chatInput.placeholder = `Ask a question about ${state.currentManual}`;
+                } else {
+                    chatHeader.innerHTML = `<h2 class="text-xl font-semibold">Select a manual to start chatting</h2>`;
+                    chatInput.placeholder = 'Please select a manual first.';
+                }
+            }
+
+            chatForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const query = chatInput.value.trim();
+                if (!query || !state.currentManual || state.isAwaitingResponse) return;
+                
+                if (!state.settings.apiKey && state.isAdmin) {
+                    addMessage('system', 'Admin: Please set the Gemini API Key in Settings.');
+                    return;
+                } else if (!state.settings.apiKey && !state.isAdmin) {
+                     addMessage('system', 'The application is not yet configured by the administrator.');
+                     return;
+                }
+
+                state.currentQuery = query;
+                addMessage('user', query);
+                chatInput.value = '';
+                state.isAwaitingResponse = true;
+                updateChatUI();
+                addTypingIndicator();
+
+                try {
+                    const response = await queryGemini(query);
+                    addMessage('assistant', response);
+                } catch (error) {
+                    console.error("Error querying Gemini:", error);
+                    addMessage('system', "Sorry, I couldn't get a response. The admin should check the API key.");
+                } finally {
+                    removeTypingIndicator();
+                    state.isAwaitingResponse = false;
+                    updateChatUI();
+                    chatInput.focus();
+                }
+            });
+
+            function addMessage(sender, content) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `flex items-start space-x-3 max-w-xl`;
+                const messageId = `msg-${Date.now()}`;
+                
+                let iconHtml, bubbleClass;
+
+                if (sender === 'user') {
+                    messageDiv.classList.add('ml-auto', 'justify-end');
+                    bubbleClass = 'bg-blue-600 text-white';
+                    iconHtml = `<div class="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center font-bold text-sm shrink-0">YOU</div>`;
+                    messageDiv.innerHTML = `<div class="p-3 rounded-lg ${bubbleClass}"><p class="text-sm">${content}</p></div>${iconHtml}`;
+                } else if (sender === 'assistant') {
+                    bubbleClass = 'bg-gray-700 text-gray-200';
+                    iconHtml = `<div class="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center font-bold text-sm shrink-0">AI</div>`;
+                    
+                    let actionButtons = `
+                        <div class="action-buttons mt-2 pt-2 border-t border-gray-600 flex items-center space-x-4">
+                            <div class="feedback-buttons flex items-center space-x-2">
+                                <button class="feedback-btn" data-feedback="up" data-message-id="${messageId}" title="Helpful"><svg class="w-4 h-4 text-gray-400 hover:text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 18.333V9a2 2 0 012-2h2.586a1 1 0 01.707.293l2.414 2.414a1 1 0 00.707.293h3.293z"></path></svg></button>
+                                <button class="feedback-btn" data-feedback="down" data-message-id="${messageId}" title="Not Helpful"><svg class="w-4 h-4 text-gray-400 hover:text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.738 3h4.017c.163 0 .326.02.485.06L17 5.667V15a2 2 0 01-2 2h-2.586a1 1 0 01-.707-.293l-2.414-2.414a1 1 0 00-.707-.293H6.707z"></path></svg></button>
+                            </div>
+                            <button class="escalate-btn flex items-center space-x-1 text-xs text-gray-400 hover:text-yellow-400" title="Escalate to expert"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg><span>Escalate</span></button>
+                        </div>`;
+                    let messageBody = `<div class="short-answer text-sm">${content.short}</div>`;
+                    if (content.detailed) {
+                        messageBody += `<div class="detailed-answer hidden mt-2 pt-2 border-t border-gray-600 text-sm">${content.detailed}</div><button class="expand-button text-blue-400 text-xs font-semibold mt-2 hover:underline">Show More</button>`;
+                    }
+                    if (state.currentQuery) messageBody += actionButtons;
+                    messageDiv.innerHTML = `${iconHtml}<div class="p-3 rounded-lg ${bubbleClass} w-full" data-full-answer='${JSON.stringify(content)}'>${messageBody}</div>`;
+                } else { // System messages
+                    messageDiv.classList.add('mx-auto', 'justify-center');
+                    bubbleClass = 'bg-yellow-800 text-white';
+                    iconHtml = `<div class="w-8 h-8 rounded-full bg-yellow-600 flex items-center justify-center font-bold text-sm shrink-0">!</div>`;
+                    messageDiv.innerHTML = `${iconHtml}<div class="p-3 rounded-lg ${bubbleClass}"><p class="text-sm">${content}</p></div>`;
+                }
+                chatMessages.appendChild(messageDiv);
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+            }
+            
+            chatMessages.addEventListener('click', (e) => {
+                const expandButton = e.target.closest('.expand-button');
+                const feedbackButton = e.target.closest('.feedback-btn');
+                const escalateButton = e.target.closest('.escalate-btn');
+
+                if (expandButton) {
+                    const detailedAnswer = expandButton.parentElement.querySelector('.detailed-answer');
+                    if (detailedAnswer) detailedAnswer.classList.remove('hidden');
+                    expandButton.style.display = 'none';
+                } else if (feedbackButton) {
+                    const messageId = feedbackButton.dataset.messageId;
+                    const feedbackType = feedbackButton.dataset.feedback;
+                    const messageBubble = feedbackButton.closest('[data-full-answer]');
+                    const fullAnswer = JSON.parse(messageBubble.dataset.fullAnswer);
+                    saveFeedback(messageId, state.currentQuery, fullAnswer, feedbackType);
+                    
+                    const parent = feedbackButton.parentElement;
+                    Array.from(parent.children).forEach(btn => btn.classList.remove('selected', 'text-green-500', 'text-red-500'));
+                    feedbackButton.classList.add('selected', feedbackType === 'up' ? 'text-green-500' : 'text-red-500');
+                } else if (escalateButton) {
+                     if (!state.settings.operatorEmail || state.settings.operatorEmail.trim() === '') {
+                        addMessage('system', 'Escalation email is not configured. Please contact the administrator.');
+                        return;
+                    }
+                    const messageBubble = escalateButton.closest('[data-full-answer]');
+                    const fullAnswer = JSON.parse(messageBubble.dataset.fullAnswer);
+                    const subject = encodeURIComponent(`Escalated Query: ${state.currentManual}`);
+                    const body = encodeURIComponent(`Query: ${state.currentQuery}\n\nAI Answer: ${fullAnswer.short.replace(/<br>/g, '\n')}\n\nUser: ${state.user.email}`);
+                    const mailtoLink = `mailto:${state.settings.operatorEmail}?subject=${subject}&body=${body}`;
+                    window.open(mailtoLink, '_blank');
+                    addMessage('system', 'Escalation email has been prepared in a new tab.');
+                }
+            });
+            
+            async function saveFeedback(messageId, query, answer, rating) {
+                await addDoc(collection(db, "feedback"), {
+                    userId: state.user.uid,
+                    query,
+                    answer,
+                    rating,
+                    manual: state.currentManual,
+                    timestamp: new Date()
+                });
+            }
+            
+            function listenForAnalytics() {
+                if (!state.isAdmin || state.unsubscribeAnalytics) return;
+                const q = query(collection(db, "feedback"));
+                state.unsubscribeAnalytics = onSnapshot(q, (snapshot) => {
+                    renderAnalytics(snapshot.docs.map(doc => doc.data()));
+                }, (error) => {
+                    console.error("Error listening for analytics:", error);
+                    addMessage('system', "Could not load analytics data.");
+                });
+            }
+
+            analyticsButton.addEventListener('click', () => analyticsModal.classList.remove('hidden'));
+            closeAnalyticsModal.addEventListener('click', () => analyticsModal.classList.add('hidden'));
+
+            function renderAnalytics(entries) {
+                if (entries.length === 0) {
+                    analyticsContent.innerHTML = `<p class="text-gray-400">No feedback recorded yet.</p>`; return;
+                }
+                const upvotes = entries.filter(e => e.rating === 'up').length;
+                const downvotes = entries.filter(e => e.rating === 'down').length;
+                const total = entries.length;
+                const satisfaction = total > 0 ? ((upvotes / total) * 100).toFixed(1) : 0;
+                let html = `<div class="grid grid-cols-3 gap-4 mb-6 text-center"><div><p class="text-3xl font-bold text-green-500">${upvotes}</p><p class="text-sm text-gray-400">Helpful</p></div><div><p class="text-3xl font-bold text-red-500">${downvotes}</p><p class="text-sm text-gray-400">Not Helpful</p></div><div><p class="text-3xl font-bold text-blue-500">${satisfaction}%</p><p class="text-sm text-gray-400">Satisfaction</p></div></div><h3 class="text-lg font-semibold mb-3 text-white">Feedback Log</h3><div class="space-y-4">`;
+                entries.sort((a, b) => b.timestamp - a.timestamp).forEach(entry => {
+                    html += `<div class="p-3 rounded-lg ${entry.rating === 'up' ? 'bg-green-900/50' : 'bg-red-900/50'}"><p class="text-xs text-gray-500 mb-1">${entry.timestamp.toDate().toLocaleString()} by ${entry.userId.substring(0,6)}...</p><p class="font-semibold text-gray-300">Q: ${entry.query}</p><p class="text-sm text-gray-400 mt-1">A: ${entry.answer.short}</p></div>`;
+                });
+                analyticsContent.innerHTML = html + `</div>`;
+            }
+            
+            async function queryGemini(userQuery) {
+                const manualText = state.manuals[state.currentManual];
+                if (!manualText || !state.settings.apiKey) throw new Error("Missing manual text or API key");
+
+                // Use the callable function instead of a raw fetch
+                const queryGeminiFunction = httpsCallable(functions, 'queryGemini');
+
+                try {
+                    const result = await queryGeminiFunction({
+                      manualText,
+                      userQuery,
+                    });
+                    return result.data;
+                } catch (error) {
+                    console.error("Cloud Function error:", error);
+                    // Provide more specific feedback to the user
+                    if (error.code === 'functions/unavailable') {
+                        throw new Error("Cannot connect to the AI service. Please check your internet connection.");
+                    }
+                    throw new Error(error.message || "An unknown error occurred while contacting the AI service.");
+                }
+            }
+            
+            function addTypingIndicator() {
+                const indicatorDiv = document.createElement('div');
+                indicatorDiv.id = 'typing-indicator';
+                indicatorDiv.className = 'flex items-start space-x-3 max-w-xl';
+                indicatorDiv.innerHTML = `<div class="w-8 h-8 rounded-full bg-teal-600 flex items-center justify-center font-bold text-sm shrink-0">AI</div><div class="p-3 rounded-lg bg-gray-700"><div class="typing-indicator"><span></span><span></span><span></span></div></div>`;
+                chatMessages.appendChild(indicatorDiv);
+                chatWindow.scrollTop = chatWindow.scrollHeight;
+            }
+            function removeTypingIndicator() {
+                const indicator = document.getElementById('typing-indicator');
+                if (indicator) indicator.remove();
+            }
+        });
+    </script>
+</body>
+</html>
