@@ -6,6 +6,15 @@
     <title>Manual Assistant</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+
+    <!-- Firebase SDKs -->
+    <script src="/__/firebase/9.17.1/firebase-app-compat.js"></script>
+    <script src="/__/firebase/9.17.1/firebase-auth-compat.js"></script>
+    <script src="/__/firebase/9.17.1/firebase-firestore-compat.js"></script>
+    <script src="/__/firebase/9.17.1/firebase-storage-compat.js"></script>
+    <script src="/__/firebase/9.17.1/firebase-functions-compat.js"></script>
+    <script src="/__/firebase/init.js"></script>
+
     <style>
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #1f2937; }
@@ -40,9 +49,8 @@
                 </div>
                 <button type="submit" id="main-auth-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors">Login</button>
             </form>
-            <p class="text-center text-sm text-gray-400 mt-6">
-                <span id="auth-prompt-text">Don't have an account?</span>
-                <a href="#" id="toggle-auth-mode" class="font-semibold text-blue-400 hover:underline">Register</a>
+            <p id="auth-prompt-text" class="text-center text-sm text-gray-400 mt-6">
+                Don't have an account? <a href="#" id="toggle-auth-mode" class="font-medium text-blue-400 hover:underline">Sign up</a>
             </p>
         </div>
     </div>
@@ -143,58 +151,70 @@
         </div>
     </div>
 
-    <!-- Firebase SDK -->
-    <script src="/__/firebase/10.12.2/firebase-app.js"></script>
-    <script src="/__/firebase/10.12.2/firebase-auth.js"></script>
-    <script src="/__/firebase/10.12.2/firebase-firestore.js"></script>
-    <script src="/__/firebase/10.12.2/firebase-storage.js"></script>
-    <script src="/__/firebase/10.12.2/firebase-functions.js"></script>
-    <!-- Initialize Firebase -->
-    <script src="/__/firebase/init.js"></script>
-
-    <script type="module">
-        // These imports are now handled by the scripts above, but we need the functions
-        const { initializeApp } = firebase;
-        const { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } = firebase.auth;
-        const { getFirestore, collection, doc, addDoc, onSnapshot, setDoc, getDoc, query, enableIndexedDbPersistence } = firebase.firestore;
-        const { getStorage, ref, uploadBytesResumable, getDownloadURL } = firebase.storage;
-        const { getFunctions, httpsCallable } = firebase.functions;
-
-        // Initialize Firebase
-        const app = initializeApp(firebase.app().options);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const storage = getStorage(app);
-        const functions = getFunctions(app);
 
 
 
-        // Enable offline persistence
-        (async () => {
-            try {
-                await enableIndexedDbPersistence(db);
-            } catch (err) {
-                if (err.code == 'failed-precondition') {
-                    console.warn("Multiple tabs open, persistence can only be enabled in one tab at a time.");
-                } else if (err.code == 'unimplemented') {
-                    console.warn("The current browser does not support all of the features required to enable persistence.");
-                }
-            }
-        })();
-        
+
+    <script>
         document.addEventListener('DOMContentLoaded', () => {
+            // Initialize Firebase
+            const auth = firebase.auth();
+            const db = firebase.firestore();
+            const storage = firebase.storage();
+            const functions = firebase.functions();
+
+            // Enable offline persistence
+            (async () => {
+                try {
+                    await db.enablePersistence();
+                } catch (err) {
+                    if (err.code == 'failed-precondition') {
+                        console.warn("Multiple tabs open, persistence can only be enabled in one tab at a time.");
+                    } else if (err.code == 'unimplemented') {
+                        console.warn("The current browser does not support all of the features required to enable persistence.");
+                    }
+                }
+            })();
+
             const authContainer = document.getElementById('auth-container');
             const appContainer = document.getElementById('app-container');
+
+            // Check if the user is authenticated
+            auth.onAuthStateChanged(user => {
+                if (user) {
+                    state.user = user;
+                    authContainer.classList.add('hidden');
+                    appContainer.classList.remove('hidden');
+                    
+                    user.getIdTokenResult(true).then(idTokenResult => {
+                        state.isAdmin = !!idTokenResult.claims.admin;
+                        welcomeMessage.textContent = `Welcome, ${user.email}`;
+                        updateRoleUI();
+                        fetchSettings();
+                        listenForManuals();
+                        if (state.isAdmin) {
+                            listenForAnalytics();
+                        }
+                    });
+
+                } else {
+                    state.user = null;
+                    state.isAdmin = false;
+                    authContainer.classList.remove('hidden');
+                    appContainer.classList.add('hidden');
+                }
+            });
+
             const authForm = document.getElementById('auth-form');
             const emailInput = document.getElementById('email-input');
             const passwordInput = document.getElementById('password-input');
             const mainAuthBtn = document.getElementById('main-auth-btn');
-            const toggleAuthMode = document.getElementById('toggle-auth-mode');
-            const authModeLabel = document.getElementById('auth-mode-label');
-            const authPromptText = document.getElementById('auth-prompt-text');
             const authError = document.getElementById('auth-error');
             const logoutButton = document.getElementById('logout-button');
             const welcomeMessage = document.getElementById('welcome-message');
+            const toggleAuthModeLink = document.getElementById('toggle-auth-mode');
+            const authModeLabel = document.getElementById('auth-mode-label');
+            const authPromptText = document.getElementById('auth-prompt-text');
             
             const uploadZone = document.getElementById('upload-zone');
             const pdfUpload = document.getElementById('pdf-upload');
@@ -226,6 +246,8 @@
             
             pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
 
+            let isLoginMode = true;
+
             let state = {
                 user: null,
                 isAdmin: false,
@@ -239,17 +261,21 @@
                 unsubscribeAnalytics: null,
             };
 
-            let isLoginMode = true;
-            let unsubscribeUserRole = null;
-
-            toggleAuthMode.addEventListener('click', (e) => {
-                e.preventDefault();
-                isLoginMode = !isLoginMode;
-                authError.classList.add('hidden');
-                mainAuthBtn.textContent = isLoginMode ? 'Login' : 'Register';
-                authModeLabel.textContent = isLoginMode ? 'Please log in to continue' : 'Create a new account';
-                authPromptText.textContent = isLoginMode ? "Don't have an account?" : 'Already have an account?';
-                toggleAuthMode.textContent = isLoginMode ? 'Register' : 'Login';
+            document.body.addEventListener('click', (e) => {
+                if (e.target.id === 'toggle-auth-mode') {
+                    e.preventDefault();
+                    isLoginMode = !isLoginMode;
+                    authError.classList.add('hidden');
+                    if (isLoginMode) {
+                        authModeLabel.textContent = 'Please log in to continue';
+                        mainAuthBtn.textContent = 'Login';
+                        authPromptText.innerHTML = `Don't have an account? <a href="#" id="toggle-auth-mode" class="font-medium text-blue-400 hover:underline">Sign up</a>`;
+                    } else {
+                        authModeLabel.textContent = 'Create a new account';
+                        mainAuthBtn.textContent = 'Sign Up';
+                        authPromptText.innerHTML = `Already have an account? <a href="#" id="toggle-auth-mode" class="font-medium text-blue-400 hover:underline">Login</a>`;
+                    }
+                }
             });
 
             authForm.addEventListener('submit', async (e) => {
@@ -262,26 +288,34 @@
 
                 try {
                     if (isLoginMode) {
-                        await signInWithEmailAndPassword(auth, email, password);
+                        await auth.signInWithEmailAndPassword(email, password);
                     } else {
-                        await createUserWithEmailAndPassword(auth, email, password);
+                        await auth.createUserWithEmailAndPassword(email, password);
                     }
+                    // onAuthStateChanged will handle the UI update
                 } catch (error) {
+                    console.error('Auth Error:', error);
                     authError.textContent = error.message;
                     authError.classList.remove('hidden');
+                } finally {
                     mainAuthBtn.disabled = false;
-                    mainAuthBtn.textContent = isLoginMode ? 'Login' : 'Register';
+                    mainAuthBtn.textContent = isLoginMode ? 'Login' : 'Sign Up';
                 }
             });
 
-            logoutButton.addEventListener('click', () => {
-                signOut(auth);
+            logoutButton.addEventListener('click', async () => {
+                try {
+                    await auth.signOut();
+                    // onAuthStateChanged will handle the UI update
+                } catch (error) {
+                    console.error('Logout Error:', error);
+                }
             });
             
             async function getDocWithRetry(docRef, retries = 3, delay = 1000) {
                 for (let i = 0; i < retries; i++) {
                     try {
-                        const docSnap = await getDoc(docRef);
+                        const docSnap = await docRef.get();
                         return docSnap;
                     } catch (error) {
                         if ((error.code === 'unavailable' || error.message.includes('offline')) && i < retries - 1) {
@@ -295,66 +329,7 @@
                 }
             }
             
-            onAuthStateChanged(auth, async (user) => {
-                if (unsubscribeUserRole) unsubscribeUserRole();
-                if (state.unsubscribeManuals) state.unsubscribeManuals();
-                if (state.unsubscribeAnalytics) state.unsubscribeAnalytics();
 
-                if (user) {
-                    state.user = user;
-                    
-                    authContainer.classList.remove('hidden');
-                    appContainer.classList.add('hidden');
-                    mainAuthBtn.disabled = true;
-                    mainAuthBtn.textContent = 'Verifying...';
-                    authError.classList.add('hidden');
-
-                    const userDocRef = doc(db, "users", user.uid);
-
-                    unsubscribeUserRole = onSnapshot(userDocRef, async (docSnap) => {
-                        let isAdmin = false;
-                        const docData = docSnap.data();
-                        if (docData && docData.isAdmin) {
-                           isAdmin = true;
-                        } else if (user.email === 'admin@manual.app' && (!docData || !docData.isAdmin)) {
-                            // If user is the designated admin email and isn't admin yet, promote them.
-                                try {
-                                    await setDoc(userDocRef, { email: user.email, isAdmin: true }, { merge: true });
-                                    isAdmin = true; 
-                                } catch (e) {
-                                    console.error("Failed to set admin role:", e);
-                                }
-                            }
-                        
-                        if (state.isAdmin !== isAdmin || appContainer.classList.contains('hidden')) {
-                             state.isAdmin = isAdmin;
-                            authContainer.classList.add('hidden');
-                            appContainer.classList.remove('hidden');
-                            welcomeMessage.textContent = `Welcome, ${user.email.split('@')[0]}!`;
-
-                            updateRoleUI();
-                            listenForManuals();
-                            if (state.isAdmin) {
-                                setupAdminFileUpload();
-                                await fetchSettings();
-                                listenForAnalytics();
-                            }
-                        }
-                    }, async (error) => {
-                         console.error("Firebase role listener failed:", error);
-                         authError.textContent = "Could not verify user role. Please refresh the page.";
-                         authError.classList.remove('hidden');
-                         await signOut(auth); 
-                    });
-
-                } else {
-                    state = { ...state, user: null, isAdmin: false, manuals: {}, currentManual: null };
-                    authContainer.classList.remove('hidden');
-                    appContainer.classList.add('hidden');
-                    mainAuthBtn.disabled = false;
-                    mainAuthBtn.textContent = isLoginMode ? 'Login' : 'Register';
-                }
-            });
             
             function updateRoleUI() {
                 const adminOnlyElements = document.querySelectorAll('.admin-only');
@@ -365,10 +340,10 @@
             
             async function fetchSettings() {
                 if (!state.isAdmin) return;
-                const settingsDocRef = doc(db, 'settings', 'config');
+                const settingsDocRef = db.collection('settings').doc('config');
                 try {
                     const docSnap = await getDocWithRetry(settingsDocRef);
-                    if (docSnap.exists()) {
+                    if (docSnap.exists) {
                         state.settings = docSnap.data();
                     }
                 } catch (error) {
@@ -390,8 +365,8 @@
                     const apiKey = apiKeyInput.value.trim();
                     const operatorEmail = operatorEmailInput.value.trim();
                     
-                    const settingsDocRef = doc(db, 'settings', 'config');
-                    await setDoc(settingsDocRef, { apiKey, operatorEmail }, { merge: true });
+                    const settingsDocRef = db.collection('settings').doc('config');
+                    await settingsDocRef.set({ apiKey, operatorEmail }, { merge: true });
                     
                     state.settings.apiKey = apiKey;
                     state.settings.operatorEmail = operatorEmail;
@@ -435,8 +410,8 @@
                         progressBar.style.width = '0%';
                         
                         console.log('Starting upload for', file.name);
-                        const storageRef = ref(storage, `manuals/${file.name}`);
-                        const uploadTask = uploadBytesResumable(storageRef, file);
+                        const storageRef = storage.ref(`manuals/${file.name}`);
+                        const uploadTask = storageRef.put(file);
 
                         await new Promise((resolve, reject) => {
                             uploadTask.on('state_changed',
@@ -488,7 +463,7 @@
                         }
 
                         processingPages.textContent = 'Saving to database...';
-                        await setDoc(doc(db, "manuals", file.name), {
+                        await db.collection("manuals").doc(file.name).set({
                             name: file.name,
                             textContent: fullText
                         });
@@ -507,8 +482,8 @@
 
             function listenForManuals() {
                 if (state.unsubscribeManuals) state.unsubscribeManuals();
-                const q = query(collection(db, "manuals"));
-                state.unsubscribeManuals = onSnapshot(q, (snapshot) => {
+                const q = db.collection("manuals");
+                state.unsubscribeManuals = q.onSnapshot((snapshot) => {
                     fileList.innerHTML = '';
                     if (snapshot.empty) {
                         fileList.appendChild(noFilesMessage);
@@ -669,7 +644,7 @@
             });
             
             async function saveFeedback(messageId, query, answer, rating) {
-                await addDoc(collection(db, "feedback"), {
+                await db.collection("feedback").add({
                     userId: state.user.uid,
                     query,
                     answer,
@@ -681,8 +656,8 @@
             
             function listenForAnalytics() {
                 if (!state.isAdmin || state.unsubscribeAnalytics) return;
-                const q = query(collection(db, "feedback"));
-                state.unsubscribeAnalytics = onSnapshot(q, (snapshot) => {
+                const q = db.collection("feedback");
+                state.unsubscribeAnalytics = q.onSnapshot((snapshot) => {
                     renderAnalytics(snapshot.docs.map(doc => doc.data()));
                 }, (error) => {
                     console.error("Error listening for analytics:", error);
@@ -702,7 +677,7 @@
                 const total = entries.length;
                 const satisfaction = total > 0 ? ((upvotes / total) * 100).toFixed(1) : 0;
                 let html = `<div class="grid grid-cols-3 gap-4 mb-6 text-center"><div><p class="text-3xl font-bold text-green-500">${upvotes}</p><p class="text-sm text-gray-400">Helpful</p></div><div><p class="text-3xl font-bold text-red-500">${downvotes}</p><p class="text-sm text-gray-400">Not Helpful</p></div><div><p class="text-3xl font-bold text-blue-500">${satisfaction}%</p><p class="text-sm text-gray-400">Satisfaction</p></div></div><h3 class="text-lg font-semibold mb-3 text-white">Feedback Log</h3><div class="space-y-4">`;
-                entries.sort((a, b) => b.timestamp - a.timestamp).forEach(entry => {
+                entries.sort((a, b) => b.timestamp.toMillis() - a.timestamp.toMillis()).forEach(entry => {
                     html += `<div class="p-3 rounded-lg ${entry.rating === 'up' ? 'bg-green-900/50' : 'bg-red-900/50'}"><p class="text-xs text-gray-500 mb-1">${entry.timestamp.toDate().toLocaleString()} by ${entry.userId.substring(0,6)}...</p><p class="font-semibold text-gray-300">Q: ${entry.query}</p><p class="text-sm text-gray-400 mt-1">A: ${entry.answer.short}</p></div>`;
                 });
                 analyticsContent.innerHTML = html + `</div>`;
@@ -713,7 +688,7 @@
                 if (!manualText || !state.settings.apiKey) throw new Error("Missing manual text or API key");
 
                 // Use the callable function instead of a raw fetch
-                const queryGeminiFunction = httpsCallable(functions, 'queryGemini');
+                const queryGeminiFunction = functions.httpsCallable('queryGemini');
 
                 try {
                     const result = await queryGeminiFunction({
