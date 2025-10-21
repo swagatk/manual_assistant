@@ -540,12 +540,9 @@
                 const query = chatInput.value.trim();
                 if (!query || !state.currentManual || state.isAwaitingResponse) return;
                 
-                if (!state.settings.apiKey && state.isAdmin) {
-                    addMessage('system', 'Admin: Please set the Gemini API Key in Settings.');
+                if (state.isAdmin && !state.settings.apiKey) {
+                    addMessage('system', 'Admin: Please add a Gemini API Key in Settings before chatting.');
                     return;
-                } else if (!state.settings.apiKey && !state.isAdmin) {
-                     addMessage('system', 'The application is not yet configured by the administrator.');
-                     return;
                 }
 
                 state.currentQuery = query;
@@ -560,7 +557,8 @@
                     addMessage('assistant', response);
                 } catch (error) {
                     console.error("Error querying Gemini:", error);
-                    addMessage('system', "Sorry, I couldn't get a response. The admin should check the API key.");
+                    const readableError = error?.message || "Sorry, I couldn't get a response from the AI service.";
+                    addMessage('system', readableError);
                 } finally {
                     removeTypingIndicator();
                     state.isAwaitingResponse = false;
@@ -685,7 +683,7 @@
             
             async function queryGemini(userQuery) {
                 const manualText = state.manuals[state.currentManual];
-                if (!manualText || !state.settings.apiKey) throw new Error("Missing manual text or API key");
+                if (!manualText) throw new Error("Please select a manual before asking a question.");
 
                 // Use the callable function instead of a raw fetch
                 const queryGeminiFunction = functions.httpsCallable('queryGemini');

@@ -1,126 +1,205 @@
-const {onRequest, onCall, HttpsError} = require("firebase-functions/v2/https");
-const {setGlobalOptions} = require("firebase-functions/v2");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
+const { setGlobalOptions } = require("firebase-functions/v2");
+const functionsV1 = require("firebase-functions/v1");
 const admin = require("firebase-admin");
 const axios = require("axios");
 const logger = require("firebase-functions/logger");
 
-// Initialize Firebase Admin SDK ONCE.
 admin.initializeApp();
-setGlobalOptions({maxInstances: 10});
+setGlobalOptions({ maxInstances: 10 });
 
-// --- Authentication Cloud Functions ---
+const DEFAULT_GEMINI_MODEL = "gemini-1.5-pro-latest";
+const MAX_MANUAL_CHARS = 120000;
 
-/**
- * Exchanges a username and password for an ID token and creates a session cookie.
- */
+const MODEL_ALIAS_MAP = {
+  "gemini-1.5-flash-preview-0514": "gemini-1.5-flash-latest",
+  "gemini-1.5-flash-preview": "gemini-1.5-flash-latest",
+  "gemini-1.5-pro-preview-0514": "gemini-1.5-pro-latest",
+  "gemini-1.5-pro-preview": "gemini-1.5-pro-latest",
+};
+
+function resolveModelName(rawModel) {
+  const trimmed = (rawModel || "").trim();
+  if (!trimmed) {
+    return DEFAULT_GEMINI_MODEL;
+  }
+  if (MODEL_ALIAS_MAP[trimmed]) {
+    logger.log(`Using fallback model for deprecated alias '${trimmed}'.`);
+    return MODEL_ALIAS_MAP[trimmed];
+  }
+  if (!trimmed.startsWith("gemini-")) {
+    logger.warn(`Invalid Gemini model '${trimmed}' supplied. Falling back to default.`);
+    return DEFAULT_GEMINI_MODEL;
+  }
+  return trimmed;
+}
+
 exports.login = onRequest(async (req, res) => {
-  // Access config inside the function
-  const webApiKey = process.env.PROJECT_WEB_API_KEY;
-  const { email, password } = req.body;
+  const webApiKey = process.env.PROJECT_WEB_API_KEY || process.env.WEB_API_KEY;
+  const { email, password } = req.body || {};
 
   if (!email || !password) {
     return res.status(400).send("Email and password are required.");
   }
+  if (!webApiKey) {
+    logger.error("PROJECT_WEB_API_KEY environment variable is not set.");
+    return res.status(500).send("Web API key is not configured.");
+  }
 
   try {
     const signInResponse = await axios.post(
-      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${webApiKey}`,
-      { email, password, returnSecureToken: true }
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(webApiKey)}`,
+      { email, password, returnSecureToken: true },
+      { headers: { "Content-Type": "application/json" }, timeout: 15000 }
     );
 
-    const idToken = signInResponse.data.idToken;
-    const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 days
+    const { idToken } = signInResponse.data;
+    const expiresIn = 60 * 60 * 24 * 5 * 1000;
     const sessionCookie = await admin.auth().createSessionCookie(idToken, { expiresIn });
-    
-    const options = { maxAge: expiresIn, httpOnly: true, secure: true };
-    res.cookie("__session", sessionCookie, options);
-    return res.status(200).json({ status: "success" });
 
+    res.cookie("__session", sessionCookie, { maxAge: expiresIn, httpOnly: true, secure: true });
+    return res.status(200).json({ status: "success" });
   } catch (error) {
-    logger.error("Login failed:", error);
+    const errorMessage = error?.response?.data?.error?.message || error.message;
+    logger.error("Login failed:", errorMessage);
     return res.status(401).send("UNAUTHORIZED REQUEST!");
   }
 });
 
-/**
- * Clears the session cookie on logout.
- */
 exports.logout = onRequest((req, res) => {
   res.clearCookie("__session");
   res.redirect("/");
 });
 
-/**
- * Triggered on new user creation to assign an admin role based on email.
- */
-exports.processSignUp = require("firebase-functions/v1").auth.user().onCreate(async (user) => {
-    if (user.email === 'admin@manual.app') {
-        try {
-        await admin.auth().setCustomUserClaims(user.uid, { admin: true });
-        logger.log(`Successfully set admin claim for user: ${user.email}`);
-        } catch (error) {
-        logger.error(`Failed to set admin claim for ${user.email}`, error);
-        }
+exports.processSignUp = functionsV1.auth.user().onCreate(async (user) => {
+  if (user.email === "admin@manual.app") {
+    try {
+      await admin.auth().setCustomUserClaims(user.uid, { admin: true });
+      logger.log(`Successfully set admin claim for user: ${user.email}`);
+    } catch (error) {
+      logger.error(`Failed to set admin claim for ${user.email}`, error);
     }
+  }
 });
 
-
-// --- Callable Cloud Function for Gemini API ---
-
-/**
- * A callable function to query the Gemini API with manual text.
- */
+// Force redeploy
 exports.queryGemini = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "The function must be called while authenticated.");
   }
 
-  // 1. Read the API key from Firestore
-  let geminiApiKey;
+  const { manualText, userQuery } = request.data || {};
+  if (typeof manualText !== "string" || manualText.trim().length === 0) {
+    throw new HttpsError("invalid-argument", "Manual text is required to answer this question.");
+  }
+  if (typeof userQuery !== "string" || userQuery.trim().length === 0) {
+    throw new HttpsError("invalid-argument", "A user question is required.");
+  }
+
+  let settingsData = {};
   try {
-    const settingsDoc = await admin.firestore().collection('settings').doc('config').get();
+    const settingsDoc = await admin.firestore().collection("settings").doc("config").get();
     if (settingsDoc.exists) {
-      geminiApiKey = settingsDoc.data().apiKey;
+      settingsData = settingsDoc.data() || {};
     }
   } catch (error) {
     logger.error("Failed to read settings from Firestore:", error);
-    throw new HttpsError("internal", "Could not retrieve API key from settings.");
+    throw new HttpsError("internal", "Unable to load application settings. Please try again.");
   }
+
+  const geminiApiKey = (settingsData.apiKey || "").trim();
+  const rawModel = settingsData.model || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+  const configuredModel = resolveModelName(rawModel);
 
   if (!geminiApiKey) {
-    logger.error("Gemini API key is not configured in Firestore settings.");
-    throw new HttpsError("failed-precondition", "The application is not configured correctly. Missing Gemini API key in settings.");
+    throw new HttpsError("failed-precondition", "Gemini API key has not been configured yet. Please add it in Settings.");
   }
 
-  const { manualText, userQuery } = request.data;
-  if (!manualText || !userQuery) {
-    throw new HttpsError("invalid-argument", "Missing 'manualText' or 'userQuery' parameters.");
-  }
+  const normalizedManual = manualText.trim();
+  const truncatedManual =
+    normalizedManual.length > MAX_MANUAL_CHARS
+      ? `${normalizedManual.slice(0, MAX_MANUAL_CHARS)}\n\n[Manual truncated for length]`
+      : normalizedManual;
 
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-preview-0514:generateContent?key=${geminiApiKey}`;
-  const systemPrompt = `You are an expert assistant for technical manuals. Answer the user's question based *only* on the provided manual text. First, give a single, concise sentence answer. Then, add the separator '***'. After the separator, provide a detailed explanation. If the answer isn't in the manual, respond with only: "I could not find the answer in the provided manual."`;
+  const systemPrompt =
+    "You are an expert assistant for technical manuals. Answer the user's question based only on the provided manual text. " +
+    "First, provide a single concise sentence answer. Then add the separator '***'. After the separator, provide a detailed explanation. " +
+    'If the answer is not present in the manual, respond with only: "I could not find the answer in the provided manual."';
+
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    configuredModel
+  )}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
 
   const payload = {
-    systemInstruction: { parts: [{ text: systemPrompt }] },
-    contents: [{ parts: [{ text: `MANUAL TEXT:\n---\n${manualText}\n---\n\nQUESTION: ${userQuery}` }] }],
+    systemInstruction: {
+      role: "system",
+      parts: [{ text: systemPrompt }],
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text: `REFERENCE MANUAL (may be truncated to ${MAX_MANUAL_CHARS} characters):\n${truncatedManual}\n\nQUESTION: ${userQuery.trim()}`,
+          },
+        ],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.3,
+      topP: 0.9,
+      topK: 40,
+      maxOutputTokens: 2048,
+    },
+    safetySettings: [
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+    ],
   };
 
   try {
-    const geminiResponse = await axios.post(apiUrl, payload, { headers: { "Content-Type": "application/json" } });
-    const text = geminiResponse.data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const response = await axios.post(apiUrl, payload, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 30000,
+    });
 
-    if (!text) {
-      throw new HttpsError("internal", "Invalid API response structure from Gemini.");
+    const candidate = response.data?.candidates?.[0];
+    const combinedText = candidate?.content?.parts?.map((part) => part.text || "").join("\n");
+
+    if (!combinedText) {
+      throw new HttpsError("internal", "The AI service returned an empty response.");
     }
 
-    const parts = text.split("***");
-    const formattedResponse = parts.length > 1
-        ? { short: parts[0].trim().replace(/\n/g, "<br>"), detailed: parts[1].trim().replace(/\n/g, "<br>") }
-        : { short: text.trim().replace(/\n/g, "<br>") };
+    const [shortPart, detailedPart] = combinedText.split("***");
+    const formattedResponse = {
+      short: (shortPart || combinedText).trim().replace(/\n/g, "<br>"),
+    };
+
+    if (detailedPart) {
+      formattedResponse.detailed = detailedPart.trim().replace(/\n/g, "<br>");
+    }
 
     return formattedResponse;
   } catch (error) {
-    logger.error("Error querying Gemini:", error.response ? error.response.data : error.message);
-    throw new HttpsError("internal", "An error occurred while querying the AI service.");
+    const apiError = error?.response?.data?.error;
+    const apiErrorMessage = apiError?.message || error.message || "Unexpected error calling Gemini.";
+
+    if (apiError?.code === 404 || apiError?.code === 400) {
+      logger.error("Gemini model not found or invalid:", apiErrorMessage, {
+        requestedModel: rawModel,
+        resolvedModel: configuredModel,
+      });
+      throw new HttpsError(
+        "failed-precondition",
+        "Gemini model is unavailable. Please update the model name in Settings."
+      );
+    }
+
+    logger.error("Error querying Gemini:", apiErrorMessage, {
+      responseData: error?.response?.data,
+    });
+    throw new HttpsError("internal", `Gemini API error: ${apiErrorMessage}`);
   }
 });
