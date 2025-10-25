@@ -196,6 +196,7 @@
                         updateRoleUI();
                         fetchSettings();
                         listenForManuals();
+                        setupAdminFileUpload();
                         if (state.isAdmin) {
                             listenForAnalytics();
                         }
@@ -257,6 +258,7 @@
                 user: null,
                 isAdmin: false,
                 manuals: {},
+                aggregateManualText: "",
                 currentManual: null,
                 currentQuery: "",
                 isProcessing: false,
@@ -399,6 +401,11 @@
                 ['dragleave', 'drop'].forEach(eventName => {
                     uploadZone.addEventListener(eventName, () => uploadZone.classList.remove('bg-gray-700', 'border-blue-500'), false);
                 });
+                uploadZone.addEventListener('click', () => {
+                    if (state.isAdmin && !state.isProcessing) {
+                        pdfUpload.click();
+                    }
+                });
                 uploadZone.addEventListener('drop', (e) => handleFiles(e.dataTransfer.files), false);
                 pdfUpload.addEventListener('change', (e) => handleFiles(e.target.files));
             }
@@ -406,8 +413,14 @@
             async function handleFiles(files) {
                 if (!state.isAdmin || state.isProcessing) return;
                 console.log('handleFiles called with', files);
-                const pdfFiles = Array.from(files).filter(file => file.type === 'application/pdf');
-                if (pdfFiles.length === 0) return;
+                const incomingFiles = Array.from(files || []);
+                if (incomingFiles.length === 0) return;
+
+                const pdfFiles = incomingFiles.filter(file => file.type === 'application/pdf');
+                if (pdfFiles.length === 0) {
+                    addMessage('system', 'Please choose PDF files to upload.');
+                    return;
+                }
 
                 state.isProcessing = true;
                 processingIndicator.classList.remove('hidden');
@@ -482,6 +495,7 @@
                         }
                     }
                 }
+                pdfUpload.value = '';
                 state.isProcessing = false;
                 processingIndicator.classList.add('hidden');
                 processingFilename.textContent = 'Processing file...';
@@ -493,60 +507,104 @@
                 const q = db.collection("manuals");
                 state.unsubscribeManuals = q.onSnapshot((snapshot) => {
                     fileList.innerHTML = '';
+                    state.manuals = {};
+                    const manualEntries = [];
+
                     if (snapshot.empty) {
+                        state.aggregateManualText = '';
+                        state.currentManual = null;
                         fileList.appendChild(noFilesMessage);
-                    } else {
-                        snapshot.forEach(doc => {
-                            const manual = doc.data();
-                            state.manuals[manual.name] = manual.textContent;
-                            const li = document.createElement('li');
-                            li.className = `p-3 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors text-sm truncate ${state.currentManual === manual.name ? 'file-item-selected' : 'bg-gray-700'}`;
-                            li.textContent = manual.name;
-                            li.addEventListener('click', () => selectManual(manual.name));
-                            fileList.appendChild(li);
-                        });
+                        updateChatUI();
+                        return;
                     }
+
+                    const allManualsItem = document.createElement('li');
+                    allManualsItem.dataset.manual = '__ALL__';
+                    allManualsItem.className = `p-3 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors text-sm truncate ${state.currentManual === '__ALL__' ? 'file-item-selected' : 'bg-gray-700'}`;
+                    allManualsItem.textContent = 'All Manuals';
+                    allManualsItem.addEventListener('click', () => selectManual('__ALL__'));
+                    fileList.appendChild(allManualsItem);
+
+                    snapshot.forEach(doc => {
+                        const manual = doc.data();
+                        if (!manual || !manual.name || !manual.textContent) return;
+                        state.manuals[manual.name] = manual.textContent;
+                        manualEntries.push(manual);
+                        const li = document.createElement('li');
+                        li.dataset.manual = manual.name;
+                        li.className = `p-3 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors text-sm truncate ${state.currentManual === manual.name ? 'file-item-selected' : 'bg-gray-700'}`;
+                        li.textContent = manual.name;
+                        li.addEventListener('click', () => selectManual(manual.name));
+                        fileList.appendChild(li);
+                    });
+
+                    state.aggregateManualText = manualEntries
+                        .map(entry => `Manual: ${entry.name}\n\n${entry.textContent}`)
+                        .join('\n\n-----\n\n');
+
+                    const manualExists = state.currentManual && (state.currentManual === '__ALL__' || state.manuals[state.currentManual]);
+
+                    if (!manualExists) {
+                        selectManual('__ALL__');
+                    } else {
+                        highlightManual(state.currentManual);
+                    }
+
+                    updateChatUI();
                 }, (error) => {
                     console.error("Error listening for manuals:", error);
                     addMessage('system', "Could not load manuals.");
                 });
             }
             
-            function selectManual(filename) {
-                if (state.currentManual === filename) return;
-                state.currentManual = filename;
+            function selectManual(manualKey) {
+                if (state.currentManual === manualKey) return;
+                state.currentManual = manualKey;
                 chatMessages.innerHTML = '';
-                addMessage('assistant', { short: `Ready to answer questions about <strong>${filename}</strong>.` });
+                if (manualKey === '__ALL__') {
+                    addMessage('assistant', { short: 'Ready to answer questions across all uploaded manuals.' });
+                } else {
+                    addMessage('assistant', { short: `Ready to answer questions about <strong>${manualKey}</strong>.` });
+                }
                 updateChatUI();
-                
-                const listItems = fileList.querySelectorAll('li');
+                highlightManual(manualKey);
+            }
+
+            function highlightManual(manualKey) {
+                const listItems = fileList.querySelectorAll('li[data-manual]');
                 listItems.forEach(li => {
-                    if (li.textContent === filename) {
-                        li.classList.add('file-item-selected');
-                    } else {
-                        li.classList.remove('file-item-selected');
-                    }
+                    const isActive = li.dataset.manual === manualKey;
+                    li.classList.toggle('file-item-selected', isActive);
+                    li.classList.toggle('bg-gray-700', !isActive);
                 });
             }
             
             function updateChatUI() {
-                 const canChat = state.currentManual && !state.isAwaitingResponse;
+                 const hasKnowledge = !!state.aggregateManualText;
+                const canChat = hasKnowledge && !state.isAwaitingResponse;
                 chatInput.disabled = !canChat;
                 sendButton.disabled = !canChat;
 
-                if (state.currentManual) {
+                if (!hasKnowledge) {
+                    chatHeader.innerHTML = `<h2 class="text-xl font-semibold">Upload a manual to start chatting</h2>`;
+                    chatInput.placeholder = 'Please upload a PDF manual first.';
+                    return;
+                }
+
+                if (!state.currentManual || state.currentManual === '__ALL__') {
+                    chatHeader.innerHTML = `<h2 class="text-xl font-semibold">Chatting with all manuals</h2>`;
+                    chatInput.placeholder = 'Ask a question about any uploaded manual.';
+                } else {
                     chatHeader.innerHTML = `<h2 class="text-xl font-semibold truncate">${state.currentManual}</h2>`;
                     chatInput.placeholder = `Ask a question about ${state.currentManual}`;
-                } else {
-                    chatHeader.innerHTML = `<h2 class="text-xl font-semibold">Select a manual to start chatting</h2>`;
-                    chatInput.placeholder = 'Please select a manual first.';
                 }
             }
 
             chatForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const query = chatInput.value.trim();
-                if (!query || !state.currentManual || state.isAwaitingResponse) return;
+                const hasKnowledge = !!state.aggregateManualText;
+                if (!query || !hasKnowledge || state.isAwaitingResponse) return;
                 
                 if (state.isAdmin && !state.settings.apiKey) {
                     addMessage('system', 'Admin: Please add a Gemini API Key in Settings before chatting.');
@@ -641,8 +699,9 @@
                     }
                     const messageBubble = escalateButton.closest('[data-full-answer]');
                     const fullAnswer = JSON.parse(messageBubble.dataset.fullAnswer);
-                    const subject = encodeURIComponent(`Escalated Query: ${state.currentManual}`);
-                    const body = encodeURIComponent(`Query: ${state.currentQuery}\n\nAI Answer: ${fullAnswer.short.replace(/<br>/g, '\n')}\n\nUser: ${state.user.email}`);
+                    const manualLabel = state.currentManual === '__ALL__' ? 'All Manuals' : state.currentManual;
+                    const subject = encodeURIComponent(`Escalated Query: ${manualLabel}`);
+                    const body = encodeURIComponent(`Manual Context: ${manualLabel}\nQuery: ${state.currentQuery}\n\nAI Answer: ${fullAnswer.short.replace(/<br>/g, '\n')}\n\nUser: ${state.user.email}`);
                     const mailtoLink = `mailto:${state.settings.operatorEmail}?subject=${subject}&body=${body}`;
                     window.open(mailtoLink, '_blank');
                     addMessage('system', 'Escalation email has been prepared in a new tab.');
@@ -650,12 +709,13 @@
             });
             
             async function saveFeedback(messageId, query, answer, rating) {
+                const manualTag = state.currentManual === '__ALL__' ? 'ALL_MANUALS' : (state.currentManual || 'UNKNOWN');
                 await db.collection("feedback").add({
                     userId: state.user.uid,
                     query,
                     answer,
                     rating,
-                    manual: state.currentManual,
+                    manual: manualTag,
                     timestamp: new Date()
                 });
             }
@@ -690,8 +750,13 @@
             }
             
             async function queryGemini(userQuery) {
-                const manualText = state.manuals[state.currentManual];
-                if (!manualText) throw new Error("Please select a manual before asking a question.");
+                let manualText = '';
+                if (state.currentManual === '__ALL__' || !state.currentManual) {
+                    manualText = state.aggregateManualText;
+                } else {
+                    manualText = state.manuals[state.currentManual];
+                }
+                if (!manualText) throw new Error("Please upload a manual before asking a question.");
 
                 // Use the callable function instead of a raw fetch
                 const queryGeminiFunction = functions.httpsCallable('queryGemini');
