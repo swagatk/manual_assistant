@@ -71,6 +71,10 @@
                         <label for="operator-email-input" class="block text-sm font-medium text-gray-300 mb-1">Operator Email for Escalation</label>
                         <input type="email" id="operator-email-input" placeholder="expert@example.com" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
                     </div>
+                    <div class="mb-6">
+                        <label for="model-name-input" class="block text-sm font-medium text-gray-300 mb-1">Gemini Model Name</label>
+                        <input type="text" id="model-name-input" placeholder="e.g., gemini-1.5-pro-latest" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                    </div>
                     <div class="flex justify-between items-center">
                         <button type="button" id="close-settings-modal" class="text-gray-400 hover:text-white">Cancel</button>
                         <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition-colors">Save Settings</button>
@@ -236,6 +240,7 @@
             const settingsForm = document.getElementById('settings-form');
             const apiKeyInput = document.getElementById('api-key-input');
             const operatorEmailInput = document.getElementById('operator-email-input');
+            const modelNameInput = document.getElementById('model-name-input');
             const settingsButton = document.getElementById('settings-button');
             const closeSettingsModal = document.getElementById('close-settings-modal');
             
@@ -256,7 +261,7 @@
                 currentQuery: "",
                 isProcessing: false,
                 isAwaitingResponse: false,
-                settings: { apiKey: "", operatorEmail: "" },
+                settings: { apiKey: "", operatorEmail: "", model: "" },
                 unsubscribeManuals: null,
                 unsubscribeAnalytics: null,
             };
@@ -352,6 +357,7 @@
                 }
                 apiKeyInput.value = state.settings.apiKey || '';
                 operatorEmailInput.value = state.settings.operatorEmail || '';
+                modelNameInput.value = state.settings.model || '';
             }
 
             settingsButton.addEventListener('click', () => settingsModal.classList.remove('hidden'));
@@ -364,12 +370,14 @@
                 try {
                     const apiKey = apiKeyInput.value.trim();
                     const operatorEmail = operatorEmailInput.value.trim();
+                    const model = modelNameInput.value.trim();
                     
                     const settingsDocRef = db.collection('settings').doc('config');
-                    await settingsDocRef.set({ apiKey, operatorEmail }, { merge: true });
+                    await settingsDocRef.set({ apiKey, operatorEmail, model }, { merge: true });
                     
                     state.settings.apiKey = apiKey;
                     state.settings.operatorEmail = operatorEmail;
+                    state.settings.model = model;
 
                     addMessage('system', 'Settings saved successfully.');
                 } catch (error) {
