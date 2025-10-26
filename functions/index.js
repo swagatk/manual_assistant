@@ -18,6 +18,12 @@ const MODEL_ALIAS_MAP = {
   "gemini-1.5-pro-preview": "gemini-1.5-pro-latest",
 };
 
+function assertAdmin(request) {
+  if (!request.auth || request.auth.token?.admin !== true) {
+    throw new HttpsError("permission-denied", "Admin privileges are required for this operation.");
+  }
+}
+
 function resolveModelName(rawModel) {
   const trimmed = (rawModel || "").trim();
   if (!trimmed) {
@@ -206,5 +212,83 @@ exports.queryGemini = onCall(async (request) => {
       responseData: error?.response?.data,
     });
     throw new HttpsError("internal", `Gemini API error: ${apiErrorMessage}`);
+  }
+});
+
+exports.listUsers = onCall(async (request) => {
+  assertAdmin(request);
+
+  try {
+    const users = [];
+    let nextPageToken;
+
+    do {
+      // Firebase returns users in batches of up to 1000 records.
+      const result = await admin.auth().listUsers(1000, nextPageToken);
+      result.users.forEach((userRecord) => {
+        users.push({
+          uid: userRecord.uid,
+          email: userRecord.email || "",
+          disabled: userRecord.disabled === true,
+          isAdmin: !!userRecord.customClaims?.admin,
+          creationTime: userRecord.metadata?.creationTime || null,
+          lastSignInTime: userRecord.metadata?.lastSignInTime || null,
+        });
+      });
+      nextPageToken = result.pageToken;
+    } while (nextPageToken);
+
+    return { users };
+  } catch (error) {
+    logger.error("Failed to list users:", error);
+    throw new HttpsError("internal", "Unable to list users at this time.");
+  }
+});
+
+exports.setUserDisabledStatus = onCall(async (request) => {
+  assertAdmin(request);
+  const { uid, disabled } = request.data || {};
+
+  if (typeof uid !== "string" || typeof disabled !== "boolean") {
+    throw new HttpsError("invalid-argument", "A user ID and desired disabled status are required.");
+  }
+  if (uid === request.auth.uid) {
+    throw new HttpsError("failed-precondition", "You cannot change the status of your own account.");
+  }
+
+  try {
+    await admin.auth().updateUser(uid, { disabled });
+    logger.log(`Admin ${request.auth.uid} set disabled=${disabled} for user ${uid}`);
+    return { success: true };
+  } catch (error) {
+    logger.error("Failed to update user status:", error);
+    if (error.code === "auth/user-not-found") {
+      throw new HttpsError("not-found", "The specified user does not exist.");
+    }
+    throw new HttpsError("internal", "Unable to update the user at this time.");
+  }
+});
+
+exports.deleteUser = onCall(async (request) => {
+  assertAdmin(request);
+  const { uid } = request.data || {};
+
+  if (typeof uid !== "string" || uid.length === 0) {
+    throw new HttpsError("invalid-argument", "A valid user ID is required.");
+  }
+  if (uid === request.auth.uid) {
+    throw new HttpsError("failed-precondition", "You cannot delete your own account.");
+  }
+
+  try {
+    await admin.auth().deleteUser(uid);
+    logger.log(`Admin ${request.auth.uid} deleted user ${uid}`);
+    return { success: true };
+  } catch (error) {
+    logger.error("Failed to delete user:", error);
+    if (error.code === "auth/user-not-found") {
+      throw new HttpsError("not-found", "The specified user does not exist.");
+    }
+    throw new HttpsError("internal", "Unable to delete the user at this time.");
   }
 });

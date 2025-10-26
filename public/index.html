@@ -94,6 +94,18 @@
             </div>
         </div>
 
+        <!-- User Management Modal -->
+        <div id="users-modal" class="modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">
+             <div class="bg-gray-800 rounded-lg shadow-xl p-8 w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-white">Manage Users</h2>
+                    <button id="close-users-modal" class="text-gray-400 hover:text-white text-3xl leading-none">&times;</button>
+                </div>
+                <p class="text-xs text-gray-400 mb-4">Disable accounts to temporarily revoke access, or delete to remove them entirely. You cannot disable or delete your own account.</p>
+                <div id="users-content" class="overflow-y-auto divide-y divide-gray-700"></div>
+             </div>
+        </div>
+
         <div class="flex h-full">
             <!-- Left Panel -->
             <div class="w-1/3 bg-gray-800 p-6 flex flex-col border-r border-gray-700">
@@ -106,6 +118,9 @@
                         <button id="analytics-button" class="admin-only" title="View Analytics">
                            <svg class="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
                         </button>
+                                <button id="manage-users-button" class="admin-only" title="Manage Users">
+                                    <svg class="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-3-3.87M9 11a4 4 0 100-8 4 4 0 000 8zm6 9v-2a4 4 0 00-3-3.87m6-5.63a4 4 0 11-8 0 4 4 0 018 0zM3 20h6m-3-3a4 4 0 00-3 3"></path></svg>
+                                </button>
                         <button id="settings-button" class="admin-only" title="Settings">
                            <svg class="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                         </button>
@@ -249,6 +264,11 @@
             const analyticsButton = document.getElementById('analytics-button');
             const closeAnalyticsModal = document.getElementById('close-analytics-modal');
             const analyticsContent = document.getElementById('analytics-content');
+
+            const manageUsersButton = document.getElementById('manage-users-button');
+            const usersModal = document.getElementById('users-modal');
+            const closeUsersModal = document.getElementById('close-users-modal');
+            const usersContent = document.getElementById('users-content');
             
             pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js`;
 
@@ -266,7 +286,15 @@
                 settings: { apiKey: "", operatorEmail: "", model: "" },
                 unsubscribeManuals: null,
                 unsubscribeAnalytics: null,
+                users: [],
             };
+
+            function formatTimestamp(timestamp) {
+                if (!timestamp) return 'Never';
+                const date = new Date(timestamp);
+                if (Number.isNaN(date.getTime())) return 'Unknown';
+                return date.toLocaleString();
+            }
 
             document.body.addEventListener('click', (e) => {
                 if (e.target.id === 'toggle-auth-mode') {
@@ -807,6 +835,16 @@
             analyticsButton.addEventListener('click', () => analyticsModal.classList.remove('hidden'));
             closeAnalyticsModal.addEventListener('click', () => analyticsModal.classList.add('hidden'));
 
+            manageUsersButton.addEventListener('click', () => {
+                if (!state.isAdmin) return;
+                usersModal.classList.remove('hidden');
+                loadUserAccounts();
+            });
+            closeUsersModal.addEventListener('click', () => {
+                usersModal.classList.add('hidden');
+                usersContent.innerHTML = '';
+            });
+
             function renderAnalytics(entries) {
                 if (entries.length === 0) {
                     analyticsContent.innerHTML = `<p class="text-gray-400">No feedback recorded yet.</p>`; return;
@@ -820,6 +858,119 @@
                     html += `<div class="p-3 rounded-lg ${entry.rating === 'up' ? 'bg-green-900/50' : 'bg-red-900/50'}"><p class="text-xs text-gray-500 mb-1">${entry.timestamp.toDate().toLocaleString()} by ${entry.userId.substring(0,6)}...</p><p class="font-semibold text-gray-300">Q: ${entry.query}</p><p class="text-sm text-gray-400 mt-1">A: ${entry.answer.short}</p></div>`;
                 });
                 analyticsContent.innerHTML = html + `</div>`;
+            }
+
+            async function loadUserAccounts() {
+                if (!state.isAdmin) return;
+                usersContent.innerHTML = '<p class="text-gray-400 py-2">Loading users...</p>';
+                try {
+                    const listUsersCallable = functions.httpsCallable('listUsers');
+                    const result = await listUsersCallable();
+                    const users = Array.isArray(result?.data?.users) ? result.data.users : [];
+                    users.sort((a, b) => {
+                        const emailA = (a.email || '').toLowerCase();
+                        const emailB = (b.email || '').toLowerCase();
+                        if (a.isAdmin !== b.isAdmin) return a.isAdmin ? -1 : 1;
+                        return emailA.localeCompare(emailB);
+                    });
+                    state.users = users;
+                    renderUserAccounts();
+                } catch (error) {
+                    console.error('Error loading users:', error);
+                    const message = error?.message || 'Unknown error.';
+                    usersContent.innerHTML = `<p class="text-red-400 py-2">Failed to load user accounts. ${message}</p>`;
+                }
+            }
+
+            function renderUserAccounts() {
+                usersContent.innerHTML = '';
+                if (!Array.isArray(state.users) || state.users.length === 0) {
+                    usersContent.innerHTML = '<p class="text-gray-400 py-4">No user accounts found.</p>';
+                    return;
+                }
+
+                const currentUid = state.user?.uid;
+                const fragment = document.createDocumentFragment();
+
+                state.users.forEach((user) => {
+                    const row = document.createElement('div');
+                    row.className = 'py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm';
+
+                    const detail = document.createElement('div');
+                    const email = user.email || '(no email)';
+                    const badges = [];
+                    if (user.isAdmin) badges.push('<span class="ml-2 px-2 py-0.5 rounded-full text-xs bg-amber-500/20 text-amber-200">Admin</span>');
+                    if (user.uid === currentUid) badges.push('<span class="ml-2 px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-200">You</span>');
+                    const statusBadge = user.disabled ? '<span class="ml-2 px-2 py-0.5 rounded-full text-xs bg-red-500/20 text-red-300">Disabled</span>' : '';
+                    detail.innerHTML = `
+                        <p class="font-medium text-gray-200 flex items-center flex-wrap">${email}${badges.join('')}${statusBadge}</p>
+                        <p class="text-xs text-gray-500 break-all">UID: ${user.uid}</p>
+                        <p class="text-xs text-gray-500">Created: ${formatTimestamp(user.creationTime)} | Last sign-in: ${formatTimestamp(user.lastSignInTime)}</p>
+                    `;
+                    row.appendChild(detail);
+
+                    const actions = document.createElement('div');
+                    actions.className = 'flex items-center space-x-2 shrink-0';
+
+                    if (user.uid === currentUid) {
+                        const note = document.createElement('span');
+                        note.className = 'text-xs text-gray-500';
+                        note.textContent = 'Current session';
+                        actions.appendChild(note);
+                    } else {
+                        const toggleBtn = document.createElement('button');
+                        toggleBtn.className = 'px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500';
+                        toggleBtn.textContent = user.disabled ? 'Enable' : 'Disable';
+                        toggleBtn.addEventListener('click', () => updateUserDisabledStatus(user, !user.disabled, toggleBtn));
+                        actions.appendChild(toggleBtn);
+
+                        const deleteBtn = document.createElement('button');
+                        deleteBtn.className = 'px-3 py-1 rounded bg-red-600 hover:bg-red-700 text-xs text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500';
+                        deleteBtn.textContent = 'Delete';
+                        deleteBtn.addEventListener('click', () => handleUserDeletion(user, deleteBtn));
+                        actions.appendChild(deleteBtn);
+                    }
+
+                    row.appendChild(actions);
+                    fragment.appendChild(row);
+                });
+
+                usersContent.appendChild(fragment);
+            }
+
+            async function updateUserDisabledStatus(user, disabled, triggerButton) {
+                if (!state.isAdmin) return;
+                if (triggerButton) triggerButton.disabled = true;
+                try {
+                    const callable = functions.httpsCallable('setUserDisabledStatus');
+                    await callable({ uid: user.uid, disabled });
+                    addMessage('system', `${user.email || user.uid} was ${disabled ? 'disabled' : 'enabled'}.`);
+                    await loadUserAccounts();
+                } catch (error) {
+                    console.error('Error updating user status:', error);
+                    const message = error?.message || 'Unknown error updating user status.';
+                    addMessage('system', message);
+                    if (triggerButton) triggerButton.disabled = false;
+                }
+            }
+
+            async function handleUserDeletion(user, triggerButton) {
+                if (!state.isAdmin) return;
+                if (!confirm(`Permanently delete ${user.email || user.uid}? This cannot be undone.`)) {
+                    return;
+                }
+                if (triggerButton) triggerButton.disabled = true;
+                try {
+                    const callable = functions.httpsCallable('deleteUser');
+                    await callable({ uid: user.uid });
+                    addMessage('system', `${user.email || user.uid} was deleted.`);
+                    await loadUserAccounts();
+                } catch (error) {
+                    console.error('Error deleting user:', error);
+                    const message = error?.message || 'Unknown error deleting user.';
+                    addMessage('system', message);
+                    if (triggerButton) triggerButton.disabled = false;
+                }
             }
             
             async function queryGemini(userQuery) {
