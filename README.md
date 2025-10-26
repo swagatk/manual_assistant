@@ -102,7 +102,7 @@ This uploads:
 ## 8. Ongoing admin tasks
 
 - **Manual management:** Use the left panel to upload new PDFs or delete existing ones. Deleting removes the file from Storage and the corresponding Firestore document.
-- **User management:** Click the **Manage Users** icon to view current accounts, disable/enable access, or permanently delete users. You cannot modify your own account from the UI.
+- **User management:** Click the **Manage Users** icon to review pending registrations, approve or revoke access, disable/enable users, or permanently delete accounts. You cannot modify your own account from the UI.
 - **Feedback analytics:** Review AI response feedback in the **Analytics** modal.
 - **Settings:** Update the Gemini API key, operator email, or model name at any time. Changes are stored in Firestore and take effect immediately.
 

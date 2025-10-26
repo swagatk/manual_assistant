@@ -36,6 +36,7 @@
             <h1 class="text-3xl font-bold text-center text-white mb-2">Manual Assistant</h1>
             <p id="auth-mode-label" class="text-center text-gray-400 mb-6">Please log in to continue</p>
             
+            <div id="auth-notice" class="bg-blue-500/20 text-blue-200 text-sm p-3 rounded-lg mb-4 hidden"></div>
             <div id="auth-error" class="bg-red-500/20 text-red-300 text-sm p-3 rounded-lg mb-4 hidden"></div>
 
             <form id="auth-form">
@@ -199,29 +200,54 @@
             const appContainer = document.getElementById('app-container');
 
             // Check if the user is authenticated
-            auth.onAuthStateChanged(user => {
-                if (user) {
-                    state.user = user;
-                    authContainer.classList.add('hidden');
-                    appContainer.classList.remove('hidden');
-                    
-                    user.getIdTokenResult(true).then(idTokenResult => {
-                        state.isAdmin = !!idTokenResult.claims.admin;
-                        welcomeMessage.textContent = `Welcome, ${user.email}`;
-                        updateRoleUI();
-                        fetchSettings();
-                        listenForManuals();
-                        setupAdminFileUpload();
-                        if (state.isAdmin) {
-                            listenForAnalytics();
-                        }
-                    });
+            auth.onAuthStateChanged(async (user) => {
+                authError.classList.add('hidden');
 
-                } else {
+                if (!user) {
                     state.user = null;
                     state.isAdmin = false;
+                    state.isApproved = false;
                     authContainer.classList.remove('hidden');
                     appContainer.classList.add('hidden');
+                    return;
+                }
+
+                state.user = user;
+
+                try {
+                    const idTokenResult = await user.getIdTokenResult(true);
+                    const claims = idTokenResult.claims || {};
+                    state.isAdmin = !!claims.admin;
+                    state.isApproved = state.isAdmin || claims.approved === true;
+
+                    if (!state.isApproved) {
+                        authContainer.classList.remove('hidden');
+                        appContainer.classList.add('hidden');
+                        authNotice.textContent = 'Your account is pending administrator approval. You will receive access once an admin approves your registration.';
+                        authNotice.classList.remove('hidden');
+                        await auth.signOut();
+                        return;
+                    }
+
+                    authContainer.classList.add('hidden');
+                    appContainer.classList.remove('hidden');
+                    authNotice.classList.add('hidden');
+
+                    welcomeMessage.textContent = `Welcome, ${user.email}`;
+                    updateRoleUI();
+                    fetchSettings();
+                    listenForManuals();
+                    setupAdminFileUpload();
+                    if (state.isAdmin) {
+                        listenForAnalytics();
+                    }
+                } catch (error) {
+                    console.error('Failed to load user claims:', error);
+                    authError.textContent = 'Unable to verify your account. Please try signing in again.';
+                    authError.classList.remove('hidden');
+                    authContainer.classList.remove('hidden');
+                    appContainer.classList.add('hidden');
+                    await auth.signOut();
                 }
             });
 
@@ -230,6 +256,7 @@
             const passwordInput = document.getElementById('password-input');
             const mainAuthBtn = document.getElementById('main-auth-btn');
             const authError = document.getElementById('auth-error');
+            const authNotice = document.getElementById('auth-notice');
             const logoutButton = document.getElementById('logout-button');
             const welcomeMessage = document.getElementById('welcome-message');
             const toggleAuthModeLink = document.getElementById('toggle-auth-mode');
@@ -277,6 +304,7 @@
             let state = {
                 user: null,
                 isAdmin: false,
+                isApproved: false,
                 manuals: {},
                 aggregateManualText: "",
                 currentManual: null,
@@ -301,6 +329,7 @@
                     e.preventDefault();
                     isLoginMode = !isLoginMode;
                     authError.classList.add('hidden');
+                    authNotice.classList.add('hidden');
                     if (isLoginMode) {
                         authModeLabel.textContent = 'Please log in to continue';
                         mainAuthBtn.textContent = 'Login';
@@ -320,12 +349,15 @@
                 const email = emailInput.value;
                 const password = passwordInput.value;
                 authError.classList.add('hidden');
+                authNotice.classList.add('hidden');
 
                 try {
                     if (isLoginMode) {
                         await auth.signInWithEmailAndPassword(email, password);
                     } else {
                         await auth.createUserWithEmailAndPassword(email, password);
+                        authNotice.textContent = 'Registration received. Please wait for an administrator to approve your account.';
+                        authNotice.classList.remove('hidden');
                     }
                     // onAuthStateChanged will handle the UI update
                 } catch (error) {
@@ -705,6 +737,7 @@
                 e.preventDefault();
                 const query = chatInput.value.trim();
                 const hasKnowledge = !!state.aggregateManualText;
+                if (!state.isApproved) return;
                 if (!query || !hasKnowledge || state.isAwaitingResponse) return;
                 
                 if (state.isAdmin && !state.settings.apiKey) {
@@ -871,6 +904,7 @@
                         const emailA = (a.email || '').toLowerCase();
                         const emailB = (b.email || '').toLowerCase();
                         if (a.isAdmin !== b.isAdmin) return a.isAdmin ? -1 : 1;
+                        if (a.approved !== b.approved) return a.approved ? -1 : 1;
                         return emailA.localeCompare(emailB);
                     });
                     state.users = users;
@@ -901,9 +935,12 @@
                     const badges = [];
                     if (user.isAdmin) badges.push('<span class="ml-2 px-2 py-0.5 rounded-full text-xs bg-amber-500/20 text-amber-200">Admin</span>');
                     if (user.uid === currentUid) badges.push('<span class="ml-2 px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-200">You</span>');
+                    const approvalBadge = user.approved
+                        ? '<span class="ml-2 px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-300">Approved</span>'
+                        : '<span class="ml-2 px-2 py-0.5 rounded-full text-xs bg-yellow-500/20 text-yellow-100">Pending</span>';
                     const statusBadge = user.disabled ? '<span class="ml-2 px-2 py-0.5 rounded-full text-xs bg-red-500/20 text-red-300">Disabled</span>' : '';
                     detail.innerHTML = `
-                        <p class="font-medium text-gray-200 flex items-center flex-wrap">${email}${badges.join('')}${statusBadge}</p>
+                        <p class="font-medium text-gray-200 flex items-center flex-wrap">${email}${badges.join('')}${approvalBadge}${statusBadge}</p>
                         <p class="text-xs text-gray-500 break-all">UID: ${user.uid}</p>
                         <p class="text-xs text-gray-500">Created: ${formatTimestamp(user.creationTime)} | Last sign-in: ${formatTimestamp(user.lastSignInTime)}</p>
                     `;
@@ -918,6 +955,14 @@
                         note.textContent = 'Current session';
                         actions.appendChild(note);
                     } else {
+                        const approvalBtn = document.createElement('button');
+                        approvalBtn.className = user.approved
+                            ? 'px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500'
+                            : 'px-3 py-1 rounded bg-green-600 hover:bg-green-700 text-xs text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500';
+                        approvalBtn.textContent = user.approved ? 'Revoke Approval' : 'Approve';
+                        approvalBtn.addEventListener('click', () => updateUserApprovalStatus(user, !user.approved, approvalBtn));
+                        actions.appendChild(approvalBtn);
+
                         const toggleBtn = document.createElement('button');
                         toggleBtn.className = 'px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500';
                         toggleBtn.textContent = user.disabled ? 'Enable' : 'Disable';
@@ -949,6 +994,22 @@
                 } catch (error) {
                     console.error('Error updating user status:', error);
                     const message = error?.message || 'Unknown error updating user status.';
+                    addMessage('system', message);
+                    if (triggerButton) triggerButton.disabled = false;
+                }
+            }
+
+            async function updateUserApprovalStatus(user, approved, triggerButton) {
+                if (!state.isAdmin) return;
+                if (triggerButton) triggerButton.disabled = true;
+                try {
+                    const callable = functions.httpsCallable('setUserApprovalStatus');
+                    await callable({ uid: user.uid, approved });
+                    addMessage('system', `${user.email || user.uid} approval ${approved ? 'granted' : 'revoked'}.`);
+                    await loadUserAccounts();
+                } catch (error) {
+                    console.error('Error updating user approval:', error);
+                    const message = error?.message || 'Unknown error updating user approval.';
                     addMessage('system', message);
                     if (triggerButton) triggerButton.disabled = false;
                 }

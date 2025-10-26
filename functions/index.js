@@ -78,13 +78,17 @@ exports.logout = onRequest((req, res) => {
 });
 
 exports.processSignUp = functionsV1.auth.user().onCreate(async (user) => {
-  if (user.email === "admin@manual.app") {
-    try {
-      await admin.auth().setCustomUserClaims(user.uid, { admin: true });
-      logger.log(`Successfully set admin claim for user: ${user.email}`);
-    } catch (error) {
-      logger.error(`Failed to set admin claim for ${user.email}`, error);
+  const isDefaultAdmin = user.email === "admin@manual.app";
+  try {
+    if (isDefaultAdmin) {
+      await admin.auth().setCustomUserClaims(user.uid, { admin: true, approved: true });
+      logger.log(`Successfully provisioned default admin user: ${user.email}`);
+    } else {
+      await admin.auth().setCustomUserClaims(user.uid, { approved: false });
+      logger.log(`User ${user.email || user.uid} created in pending approval state.`);
     }
+  } catch (error) {
+    logger.error(`Failed to initialize custom claims for ${user.email || user.uid}`, error);
   }
 });
 
@@ -92,6 +96,14 @@ exports.processSignUp = functionsV1.auth.user().onCreate(async (user) => {
 exports.queryGemini = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "The function must be called while authenticated.");
+  }
+
+  const claims = request.auth.token || {};
+  if (!claims.admin && claims.approved !== true) {
+    throw new HttpsError(
+      "permission-denied",
+      "Your account is awaiting administrator approval. Please try again later."
+    );
   }
 
   const { manualText, userQuery } = request.data || {};
@@ -231,6 +243,7 @@ exports.listUsers = onCall(async (request) => {
           email: userRecord.email || "",
           disabled: userRecord.disabled === true,
           isAdmin: !!userRecord.customClaims?.admin,
+          approved: userRecord.customClaims?.approved === true || !!userRecord.customClaims?.admin,
           creationTime: userRecord.metadata?.creationTime || null,
           lastSignInTime: userRecord.metadata?.lastSignInTime || null,
         });
@@ -266,6 +279,38 @@ exports.setUserDisabledStatus = onCall(async (request) => {
       throw new HttpsError("not-found", "The specified user does not exist.");
     }
     throw new HttpsError("internal", "Unable to update the user at this time.");
+  }
+});
+
+exports.setUserApprovalStatus = onCall(async (request) => {
+  assertAdmin(request);
+  const { uid, approved } = request.data || {};
+
+  if (typeof uid !== "string" || typeof approved !== "boolean") {
+    throw new HttpsError("invalid-argument", "A user ID and approval flag are required.");
+  }
+  if (uid === request.auth.uid && approved === false) {
+    throw new HttpsError("failed-precondition", "You cannot revoke approval for your own account.");
+  }
+
+  try {
+    const userRecord = await admin.auth().getUser(uid);
+    const currentClaims = userRecord.customClaims || {};
+    const updatedClaims = { ...currentClaims, approved };
+    if (currentClaims.admin) {
+      updatedClaims.admin = true;
+    }
+
+    await admin.auth().setCustomUserClaims(uid, updatedClaims);
+    await admin.auth().revokeRefreshTokens(uid);
+    logger.log(`Admin ${request.auth.uid} set approved=${approved} for user ${uid}`);
+    return { success: true };
+  } catch (error) {
+    logger.error("Failed to update user approval:", error);
+    if (error.code === "auth/user-not-found") {
+      throw new HttpsError("not-found", "The specified user does not exist.");
+    }
+    throw new HttpsError("internal", "Unable to update approval status at this time.");
   }
 });
 
