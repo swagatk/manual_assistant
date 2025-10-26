@@ -95,6 +95,58 @@
             </div>
         </div>
 
+        <!-- Profile Modal -->
+        <div id="profile-modal" class="modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">
+             <div class="bg-gray-800 rounded-lg shadow-xl p-8 w-full max-w-xl mx-4 max-h-[80vh] flex flex-col">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-white">Your Profile</h2>
+                    <button id="close-profile-modal" class="text-gray-400 hover:text-white text-3xl leading-none">&times;</button>
+                </div>
+                <p class="text-xs text-gray-400 mb-4">Update your personal details, recovery information, and password. Leave any field blank to keep it unchanged.</p>
+                <form id="profile-form" class="space-y-4 overflow-y-auto pr-1">
+                    <div id="profile-error" class="hidden text-sm text-red-400 bg-red-500/10 p-3 rounded"></div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1" for="profile-email">Account Email</label>
+                        <input id="profile-email" type="email" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-gray-400 cursor-not-allowed" readonly>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1" for="profile-name">Display Name</label>
+                        <input id="profile-name" type="text" placeholder="e.g., Alex Rivera" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1" for="profile-phone">Phone Number</label>
+                        <input id="profile-phone" type="tel" placeholder="e.g., +1 555 0100" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1" for="profile-recovery-email">Recovery Email</label>
+                        <input id="profile-recovery-email" type="email" placeholder="e.g., personal.backup@example.com" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                    </div>
+                    <fieldset class="border border-gray-700 rounded-lg p-4">
+                        <legend class="px-2 text-sm font-semibold text-gray-300">Change Password (optional)</legend>
+                        <p class="text-xs text-gray-400 mb-3">Enter your current password and a new password to update it. Leave blank to keep your existing password.</p>
+                        <div class="grid gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-1" for="profile-current-password">Current Password</label>
+                                <input id="profile-current-password" type="password" autocomplete="current-password" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-1" for="profile-new-password">New Password</label>
+                                <input id="profile-new-password" type="password" autocomplete="new-password" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-300 mb-1" for="profile-confirm-password">Confirm New Password</label>
+                                <input id="profile-confirm-password" type="password" autocomplete="new-password" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white">
+                            </div>
+                        </div>
+                    </fieldset>
+                    <div class="flex justify-between items-center pt-2">
+                        <button type="button" id="cancel-profile" class="text-gray-400 hover:text-white">Cancel</button>
+                        <button type="submit" id="profile-save-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition-colors">Save Changes</button>
+                    </div>
+                </form>
+             </div>
+        </div>
+
         <!-- User Management Modal -->
         <div id="users-modal" class="modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-70 hidden">
              <div class="bg-gray-800 rounded-lg shadow-xl p-8 w-full max-w-3xl mx-4 max-h-[80vh] flex flex-col">
@@ -119,6 +171,9 @@
                         <button id="analytics-button" class="admin-only" title="View Analytics">
                            <svg class="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
                         </button>
+                                <button id="profile-button" title="Profile">
+                                    <svg class="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A9 9 0 0112 15a9 9 0 016.879 2.804M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a4 4 0 018 0v0a4 4 0 01-8 0z"></path></svg>
+                                </button>
                                 <button id="manage-users-button" class="admin-only" title="Manage Users">
                                     <svg class="w-6 h-6 text-gray-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a4 4 0 00-3-3.87M9 11a4 4 0 100-8 4 4 0 000 8zm6 9v-2a4 4 0 00-3-3.87m6-5.63a4 4 0 11-8 0 4 4 0 018 0zM3 20h6m-3-3a4 4 0 00-3 3"></path></svg>
                                 </button>
@@ -199,6 +254,7 @@
             const authContainer = document.getElementById('auth-container');
             const appContainer = document.getElementById('app-container');
 
+
             // Check if the user is authenticated
             auth.onAuthStateChanged(async (user) => {
                 authError.classList.add('hidden');
@@ -207,6 +263,8 @@
                     state.user = null;
                     state.isAdmin = false;
                     state.isApproved = false;
+                    state.profile = {};
+                    authNotice.classList.add('hidden');
                     authContainer.classList.remove('hidden');
                     appContainer.classList.add('hidden');
                     return;
@@ -229,11 +287,15 @@
                         return;
                     }
 
+                    await loadUserProfile();
+
                     authContainer.classList.add('hidden');
                     appContainer.classList.remove('hidden');
                     authNotice.classList.add('hidden');
 
-                    welcomeMessage.textContent = `Welcome, ${user.email}`;
+                    const displayLabel = user.displayName || state.profile?.name || user.email;
+                    welcomeMessage.textContent = `Welcome, ${displayLabel}`;
+
                     updateRoleUI();
                     fetchSettings();
                     listenForManuals();
@@ -292,6 +354,21 @@
             const closeAnalyticsModal = document.getElementById('close-analytics-modal');
             const analyticsContent = document.getElementById('analytics-content');
 
+            const profileButton = document.getElementById('profile-button');
+            const profileModal = document.getElementById('profile-modal');
+            const closeProfileModal = document.getElementById('close-profile-modal');
+            const cancelProfileButton = document.getElementById('cancel-profile');
+            const profileForm = document.getElementById('profile-form');
+            const profileEmailInput = document.getElementById('profile-email');
+            const profileNameInput = document.getElementById('profile-name');
+            const profilePhoneInput = document.getElementById('profile-phone');
+            const profileRecoveryEmailInput = document.getElementById('profile-recovery-email');
+            const profileCurrentPasswordInput = document.getElementById('profile-current-password');
+            const profileNewPasswordInput = document.getElementById('profile-new-password');
+            const profileConfirmPasswordInput = document.getElementById('profile-confirm-password');
+            const profileSaveButton = document.getElementById('profile-save-button');
+            const profileError = document.getElementById('profile-error');
+
             const manageUsersButton = document.getElementById('manage-users-button');
             const usersModal = document.getElementById('users-modal');
             const closeUsersModal = document.getElementById('close-users-modal');
@@ -315,6 +392,7 @@
                 unsubscribeManuals: null,
                 unsubscribeAnalytics: null,
                 users: [],
+                profile: {},
             };
 
             function formatTimestamp(timestamp) {
@@ -322,6 +400,50 @@
                 const date = new Date(timestamp);
                 if (Number.isNaN(date.getTime())) return 'Unknown';
                 return date.toLocaleString();
+            }
+
+            async function loadUserProfile() {
+                if (!state.user) {
+                    state.profile = {};
+                    return;
+                }
+
+                try {
+                    const docSnap = await db.collection('userProfiles').doc(state.user.uid).get();
+                    state.profile = docSnap.exists ? (docSnap.data() || {}) : {};
+                } catch (error) {
+                    console.error('Error loading profile:', error);
+                    state.profile = {};
+                }
+            }
+
+            function populateProfileForm() {
+                if (!state.user) return;
+
+                profileError.classList.add('hidden');
+                profileError.textContent = '';
+
+                profileEmailInput.value = state.user.email || '';
+                const nameValue = state.user.displayName || state.profile?.name || '';
+                profileNameInput.value = nameValue;
+                profilePhoneInput.value = state.profile?.phoneNumber || '';
+                profileRecoveryEmailInput.value = state.profile?.recoveryEmail || '';
+                profileCurrentPasswordInput.value = '';
+                profileNewPasswordInput.value = '';
+                profileConfirmPasswordInput.value = '';
+            }
+
+            function resetProfileSensitiveFields() {
+                profileCurrentPasswordInput.value = '';
+                profileNewPasswordInput.value = '';
+                profileConfirmPasswordInput.value = '';
+            }
+
+            function hideProfileModal() {
+                profileError.classList.add('hidden');
+                profileError.textContent = '';
+                resetProfileSensitiveFields();
+                profileModal.classList.add('hidden');
             }
 
             document.body.addEventListener('click', (e) => {
@@ -373,7 +495,7 @@
             logoutButton.addEventListener('click', async () => {
                 try {
                     await auth.signOut();
-                    // onAuthStateChanged will handle the UI update
+                    hideProfileModal();
                 } catch (error) {
                     console.error('Logout Error:', error);
                 }
@@ -403,6 +525,12 @@
                 adminOnlyElements.forEach(el => {
                     el.style.display = state.isAdmin ? '' : 'none';
                 });
+
+                if (profileButton) {
+                    profileButton.disabled = !state.isApproved;
+                    profileButton.classList.toggle('opacity-50', !state.isApproved);
+                    profileButton.classList.toggle('cursor-not-allowed', !state.isApproved);
+                }
             }
             
             async function fetchSettings() {
@@ -867,6 +995,104 @@
 
             analyticsButton.addEventListener('click', () => analyticsModal.classList.remove('hidden'));
             closeAnalyticsModal.addEventListener('click', () => analyticsModal.classList.add('hidden'));
+
+            profileButton.addEventListener('click', () => {
+                if (!state.isApproved || !state.user) return;
+                populateProfileForm();
+                profileModal.classList.remove('hidden');
+            });
+            closeProfileModal.addEventListener('click', hideProfileModal);
+            cancelProfileButton.addEventListener('click', hideProfileModal);
+
+            profileForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                if (!state.user) return;
+
+                profileError.classList.add('hidden');
+                profileError.textContent = '';
+
+                const name = profileNameInput.value.trim();
+                const phoneNumber = profilePhoneInput.value.trim();
+                const recoveryEmail = profileRecoveryEmailInput.value.trim();
+                const currentPassword = profileCurrentPasswordInput.value;
+                const newPassword = profileNewPasswordInput.value;
+                const confirmPassword = profileConfirmPasswordInput.value;
+
+                const originalButtonText = profileSaveButton.textContent;
+                profileSaveButton.disabled = true;
+                profileSaveButton.textContent = 'Saving...';
+
+                try {
+                    const user = auth.currentUser;
+                    if (!user) {
+                        throw new Error('Your session has expired. Please sign in again.');
+                    }
+
+                    if (newPassword || confirmPassword || currentPassword) {
+                        if (!newPassword || !confirmPassword) {
+                            throw new Error('Please enter and confirm the new password.');
+                        }
+                        if (newPassword !== confirmPassword) {
+                            throw new Error('New password and confirmation do not match.');
+                        }
+                        if (newPassword.length < 6) {
+                            throw new Error('New password must be at least 6 characters long.');
+                        }
+                        if (!currentPassword) {
+                            throw new Error('Current password is required to change your password.');
+                        }
+
+                        const credential = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+                        await user.reauthenticateWithCredential(credential);
+                        await user.updatePassword(newPassword);
+                    }
+
+                    const displayNameToApply = name || null;
+                    if (displayNameToApply !== user.displayName) {
+                        await user.updateProfile({ displayName: displayNameToApply });
+                    }
+
+                    const profileDocRef = db.collection('userProfiles').doc(user.uid);
+                    const payload = {
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    };
+
+                    if (name) {
+                        payload.name = name;
+                    } else {
+                        payload.name = firebase.firestore.FieldValue.delete();
+                    }
+
+                    if (phoneNumber) {
+                        payload.phoneNumber = phoneNumber;
+                    } else {
+                        payload.phoneNumber = firebase.firestore.FieldValue.delete();
+                    }
+
+                    if (recoveryEmail) {
+                        payload.recoveryEmail = recoveryEmail;
+                    } else {
+                        payload.recoveryEmail = firebase.firestore.FieldValue.delete();
+                    }
+
+                    await profileDocRef.set(payload, { merge: true });
+                    await loadUserProfile();
+
+                    const displayLabel = user.displayName || state.profile?.name || user.email;
+                    welcomeMessage.textContent = `Welcome, ${displayLabel}`;
+
+                    hideProfileModal();
+                    addMessage('system', 'Profile updated successfully.');
+                } catch (error) {
+                    console.error('Profile update error:', error);
+                    profileError.textContent = error?.message || 'Could not update your profile. Please try again.';
+                    profileError.classList.remove('hidden');
+                } finally {
+                    profileSaveButton.disabled = false;
+                    profileSaveButton.textContent = originalButtonText;
+                    resetProfileSensitiveFields();
+                }
+            });
 
             manageUsersButton.addEventListener('click', () => {
                 if (!state.isAdmin) return;

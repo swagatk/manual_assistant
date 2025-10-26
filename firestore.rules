@@ -13,6 +13,11 @@ service cloud.firestore {
       allow read: if request.auth.token.admin == true;
     }
 
+    // User Profiles: Users can manage their own profile document.
+    match /userProfiles/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
     // Settings: Only admins can read and write.
     match /settings/{settingId} {
       allow read, write: if request.auth.token.admin == true;
