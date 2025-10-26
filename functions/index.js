@@ -121,10 +121,15 @@ exports.queryGemini = onCall(async (request) => {
       ? `${normalizedManual.slice(0, MAX_MANUAL_CHARS)}\n\n[Manual truncated for length]`
       : normalizedManual;
 
-  const systemPrompt =
-    "You are an expert assistant for technical manuals. Answer the user's question based only on the provided manual text. " +
-    "First, provide a single concise sentence answer. Then add the separator '***'. After the separator, provide a detailed explanation. " +
-    'If the answer is not present in the manual, respond with only: "I could not find the answer in the provided manual."';
+  const systemPrompt = [
+    "You are an expert assistant for technical manuals. Base every part of your answer strictly on the provided manual text.",
+    "Carefully analyze the manual content, identify the most relevant passages, and reason step-by-step before responding.",
+    "Respond using this structure:",
+    "Summary: Provide a direct answer (you may use multiple sentences).",
+    "***",
+    "Detailed Analysis: Explain the reasoning in depth, referencing the specific passages or concepts that support the answer.",
+    'If, after a thorough search, the manual truly lacks the information, describe what you checked and conclude with: "I could not find the answer in the provided manual."'
+  ].join("\n");
 
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     configuredModel

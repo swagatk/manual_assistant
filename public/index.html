@@ -518,31 +518,64 @@
                         return;
                     }
 
-                    const allManualsItem = document.createElement('li');
-                    allManualsItem.dataset.manual = '__ALL__';
-                    allManualsItem.className = `p-3 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors text-sm truncate ${state.currentManual === '__ALL__' ? 'file-item-selected' : 'bg-gray-700'}`;
-                    allManualsItem.textContent = 'All Manuals';
-                    allManualsItem.addEventListener('click', () => selectManual('__ALL__'));
-                    fileList.appendChild(allManualsItem);
+                    const baseItemClasses = 'manual-list-item p-3 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors text-sm flex items-center justify-between space-x-2';
+
+                    const createListItem = (manualKey, label, allowDelete = false) => {
+                        const li = document.createElement('li');
+                        li.dataset.manual = manualKey;
+                        li.className = baseItemClasses;
+                        if (state.currentManual === manualKey) {
+                            li.classList.add('file-item-selected');
+                        } else {
+                            li.classList.add('bg-gray-700');
+                        }
+
+                        const nameSpan = document.createElement('span');
+                        nameSpan.className = 'truncate';
+                        nameSpan.textContent = label;
+                        li.appendChild(nameSpan);
+
+                        if (allowDelete && state.isAdmin) {
+                            const deleteBtn = document.createElement('button');
+                            deleteBtn.type = 'button';
+                            deleteBtn.className = 'delete-manual-btn text-xs text-red-400 hover:text-red-200 focus:outline-none';
+                            deleteBtn.title = `Delete ${label}`;
+                            deleteBtn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+                            deleteBtn.addEventListener('click', async (event) => {
+                                event.stopPropagation();
+                                if (!confirm(`Delete "${label}"? This removes the manual from storage and future chats.`)) {
+                                    return;
+                                }
+                                deleteBtn.disabled = true;
+                                try {
+                                    await deleteManual(manualKey);
+                                } finally {
+                                    deleteBtn.disabled = false;
+                                }
+                            });
+                            li.appendChild(deleteBtn);
+                        }
+
+                        li.addEventListener('click', () => selectManual(manualKey));
+                        fileList.appendChild(li);
+                    };
+
+                    createListItem('__ALL__', 'All Manuals');
 
                     snapshot.forEach(doc => {
                         const manual = doc.data();
                         if (!manual || !manual.name || !manual.textContent) return;
                         state.manuals[manual.name] = manual.textContent;
                         manualEntries.push(manual);
-                        const li = document.createElement('li');
-                        li.dataset.manual = manual.name;
-                        li.className = `p-3 rounded-lg cursor-pointer hover:bg-gray-600 transition-colors text-sm truncate ${state.currentManual === manual.name ? 'file-item-selected' : 'bg-gray-700'}`;
-                        li.textContent = manual.name;
-                        li.addEventListener('click', () => selectManual(manual.name));
-                        fileList.appendChild(li);
+                        createListItem(manual.name, manual.name, true);
                     });
 
                     state.aggregateManualText = manualEntries
                         .map(entry => `Manual: ${entry.name}\n\n${entry.textContent}`)
                         .join('\n\n-----\n\n');
 
-                    const manualExists = state.currentManual && (state.currentManual === '__ALL__' || state.manuals[state.currentManual]);
+                    const manualExists =
+                        state.currentManual && (state.currentManual === '__ALL__' || state.manuals[state.currentManual]);
 
                     if (!manualExists) {
                         selectManual('__ALL__');
@@ -577,6 +610,46 @@
                     li.classList.toggle('file-item-selected', isActive);
                     li.classList.toggle('bg-gray-700', !isActive);
                 });
+            }
+
+            async function deleteManual(manualName) {
+                if (!state.isAdmin) {
+                    addMessage('system', 'Only administrators can delete manuals.');
+                    return false;
+                }
+
+                const manualDocRef = db.collection("manuals").doc(manualName);
+                try {
+                    await manualDocRef.delete();
+                } catch (error) {
+                    console.error("Firestore delete error:", error);
+                    addMessage('system', `Could not remove ${manualName} from the manuals list. ${error.message || ''}`);
+                    return false;
+                }
+
+                let storageError = null;
+                try {
+                    await storage.ref(`manuals/${manualName}`).delete();
+                } catch (error) {
+                    if (error?.code !== 'storage/object-not-found') {
+                        storageError = error;
+                        console.error("Storage delete error:", error);
+                    }
+                }
+
+                if (state.currentManual === manualName) {
+                    state.currentManual = '__ALL__';
+                    highlightManual('__ALL__');
+                    updateChatUI();
+                }
+
+                if (storageError) {
+                    addMessage('system', `${manualName} was removed, but deleting the source file reported: ${storageError.message || storageError.code}.`);
+                    return false;
+                }
+
+                addMessage('system', `${manualName} was deleted successfully.`);
+                return true;
             }
             
             function updateChatUI() {
